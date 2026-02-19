@@ -1,33 +1,56 @@
 import { useState } from "react";
 import Login from "./login/Login";
 
-const SHEETS_URL =
-  "https://script.google.com/macros/s/AKfycbzr34rfDKiL1lb4goXwgoXN2_jqsoEzpuVe169m8AAsvClmWy4tRF2f4z7ZpGiwsWRmYQ/exec";
-
 function App() {
   const [loggedIn, setLoggedIn] = useState(false);
+  const [sheetCredentials, setSheetCredentials] = useState([]);
 
   async function StoreLogin(fullName, password) {
     try {
-      await fetch(SHEETS_URL, {
+      const loginResponse = await fetch("/api/login", {
         method: "POST",
-        mode: "no-cors",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fullName, password }),
       });
-    } catch (error) {
-      console.error("Error sending data:", error);
-    }
 
-    setLoggedIn(true);
+      if (!loginResponse.ok) {
+        throw new Error("Login request failed");
+      }
+
+      const usersResponse = await fetch(`/api/users?t=${Date.now()}`);
+      if (!usersResponse.ok) {
+        throw new Error("Users request failed");
+      }
+
+      const data = await usersResponse.json();
+      const users = Array.isArray(data) ? data : data.users || [];
+
+      const credentials = users
+        .map((user) => ({
+          fullName: user.fullName ?? "",
+          password: user.password ?? "",
+        }))
+        .filter((entry) => entry.fullName || entry.password);
+
+      setSheetCredentials(credentials);
+      console.table(credentials);
+      setLoggedIn(true);
+    } catch (error) {
+      console.error("Login flow failed:", error);
+    }
   }
 
   return (
     <main>
       {!loggedIn && <Login StoreLogin={StoreLogin} />}
-      {loggedIn && <h1>Logged in!</h1>}
+      {loggedIn && (
+        <>
+          <h1>Logged in!</h1>
+          {sheetCredentials.length > 0 && (
+            <pre>{JSON.stringify(sheetCredentials, null, 2)}</pre>
+          )}
+        </>
+      )}
     </main>
   );
 }
