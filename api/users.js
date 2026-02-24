@@ -10,7 +10,7 @@ export default async function handler(req, res) {
     const db = await getDb();
     const users = await db
       .collection("logins")
-      .find({}, { projection: { fullName: 1, passwordHash: 1, createdAt: 1 } })
+      .find({}, { projection: { fullName: 1, email: 1, passwordHash: 1, createdAt: 1 } })
       .sort({ createdAt: -1 })
       .limit(200)
       .toArray();
@@ -19,6 +19,7 @@ export default async function handler(req, res) {
       users: users.map((user) => ({
         id: String(user._id),
         fullName: user.fullName,
+        email: user.email,
         password: user.passwordHash,
         createdAt: user.createdAt,
       })),

@@ -21,10 +21,10 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { fullName, password } = readJsonBody(req);
+    const { fullName, email, password } = readJsonBody(req);
 
-    if (!fullName || !password) {
-      return res.status(400).json({ error: "fullName and password are required" });
+    if (!fullName || !email || !password) {
+      return res.status(400).json({ error: "fullName, email, and password are required" });
     }
 
     const db = await getDb();
@@ -32,6 +32,7 @@ export default async function handler(req, res) {
 
     const result = await db.collection("logins").insertOne({
       fullName,
+      email,
       passwordHash,
       createdAt: new Date(),
     });

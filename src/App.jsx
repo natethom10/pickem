@@ -1,19 +1,40 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Login from "./login/Login";
 
 function App() {
-  const [loggedIn, setLoggedIn] = useState(false);
+  const [loggedIn, setLoggedIn] = useState(() => {
+    return localStorage.getItem("pickem_logged_in") === "true";
+  });
   const [sheetCredentials, setSheetCredentials] = useState([]);
   const [errorMessage, setErrorMessage] = useState("");
+  const [currentUserName, setCurrentUserName] = useState(() => {
+    return localStorage.getItem("pickem_user_name") || "";
+  });
 
-  async function StoreLogin(fullName, password) {
+  useEffect(() => {
+    localStorage.setItem("pickem_logged_in", String(loggedIn));
+    if (currentUserName) {
+      localStorage.setItem("pickem_user_name", currentUserName);
+    } else {
+      localStorage.removeItem("pickem_user_name");
+    }
+  }, [loggedIn, currentUserName]);
+
+  function handleLogout() {
+    setLoggedIn(false);
+    setCurrentUserName("");
+    setSheetCredentials([]);
+    setErrorMessage("");
+  }
+
+  async function StoreLogin(fullName, email, password) {
     setErrorMessage("");
 
     try {
       const loginResponse = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fullName, password }),
+        body: JSON.stringify({ fullName, email, password }),
       });
 
       if (!loginResponse.ok) {
@@ -37,12 +58,14 @@ function App() {
       const credentials = users
         .map((user) => ({
           fullName: user.fullName ?? "",
+          email: user.email ?? "",
           password: user.password ?? "",
         }))
-        .filter((entry) => entry.fullName || entry.password);
+        .filter((entry) => entry.fullName || entry.email || entry.password);
 
       setSheetCredentials(credentials);
       console.table(credentials);
+      setCurrentUserName(fullName);
       setLoggedIn(true);
     } catch (error) {
       console.error("Login flow failed:", error);
@@ -51,16 +74,22 @@ function App() {
   }
 
   return (
-    <main>
+    <main className={loggedIn ? "home-shell" : ""}>
       {!loggedIn && <Login StoreLogin={StoreLogin} />}
       {!loggedIn && errorMessage && <p>{errorMessage}</p>}
       {loggedIn && (
-        <>
-          <h1>Logged in!</h1>
-          {sheetCredentials.length > 0 && (
-            <pre>{JSON.stringify(sheetCredentials, null, 2)}</pre>
-          )}
-        </>
+        <section className="home-page">
+          <header className="home-header">
+            <div className="header-left">
+              <span className="brand">PickEm</span>
+              <span className="brand-divider" aria-hidden="true" />
+              <span className="current-user">{currentUserName}</span>
+            </div>
+            <button className="logout-button" onClick={handleLogout} type="button">
+              Log Out
+            </button>
+          </header>
+        </section>
       )}
     </main>
   );
