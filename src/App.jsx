@@ -4,8 +4,11 @@ import Login from "./login/Login";
 function App() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [sheetCredentials, setSheetCredentials] = useState([]);
+  const [errorMessage, setErrorMessage] = useState("");
 
   async function StoreLogin(fullName, password) {
+    setErrorMessage("");
+
     try {
       const loginResponse = await fetch("/api/login", {
         method: "POST",
@@ -14,12 +17,18 @@ function App() {
       });
 
       if (!loginResponse.ok) {
-        throw new Error("Login request failed");
+        const loginBody = await loginResponse.text();
+        throw new Error(
+          `Login request failed (${loginResponse.status}): ${loginBody || "No response body"}`
+        );
       }
 
       const usersResponse = await fetch(`/api/users?t=${Date.now()}`);
       if (!usersResponse.ok) {
-        throw new Error("Users request failed");
+        const usersBody = await usersResponse.text();
+        throw new Error(
+          `Users request failed (${usersResponse.status}): ${usersBody || "No response body"}`
+        );
       }
 
       const data = await usersResponse.json();
@@ -37,12 +46,14 @@ function App() {
       setLoggedIn(true);
     } catch (error) {
       console.error("Login flow failed:", error);
+      setErrorMessage(String(error.message || error));
     }
   }
 
   return (
     <main>
       {!loggedIn && <Login StoreLogin={StoreLogin} />}
+      {!loggedIn && errorMessage && <p>{errorMessage}</p>}
       {loggedIn && (
         <>
           <h1>Logged in!</h1>
