@@ -1,6 +1,7 @@
 import { useState } from "react";
 
-function Login({ StoreLogin }) {
+function Login({ onSignUp, onLogIn }) {
+  const [mode, setMode] = useState("signup");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -12,7 +13,11 @@ function Login({ StoreLogin }) {
 
     setIsSubmitting(true);
     try {
-      await StoreLogin(username, email, password);
+      if (mode === "signup") {
+        await onSignUp(username, email, password);
+      } else {
+        await onLogIn(username, password);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -20,7 +25,25 @@ function Login({ StoreLogin }) {
 
   return (
     <section className="login-card">
-      <h1>Sign Up</h1>
+      <div className="auth-toggle" role="tablist" aria-label="Authentication Mode">
+        <button
+          type="button"
+          className={mode === "signup" ? "active" : ""}
+          onClick={() => setMode("signup")}
+        >
+          Sign Up
+        </button>
+        <button
+          type="button"
+          className={mode === "login" ? "active" : ""}
+          onClick={() => setMode("login")}
+        >
+          Log In
+        </button>
+      </div>
+
+      <h1>{mode === "signup" ? "Sign Up" : "Log In"}</h1>
+
       <form className="login-form" onSubmit={handleSubmit}>
         <label htmlFor="username">Username</label>
         <input
@@ -34,24 +57,28 @@ function Login({ StoreLogin }) {
           required
         />
 
-        <label htmlFor="email">Email</label>
-        <input
-          id="email"
-          name="email"
-          type="email"
-          autoComplete="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          disabled={isSubmitting}
-          required
-        />
+        {mode === "signup" && (
+          <>
+            <label htmlFor="email">Email</label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              disabled={isSubmitting}
+              required
+            />
+          </>
+        )}
 
         <label htmlFor="password">Password</label>
         <input
           id="password"
           name="password"
           type="password"
-          autoComplete="current-password"
+          autoComplete={mode === "signup" ? "new-password" : "current-password"}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           disabled={isSubmitting}
@@ -59,7 +86,13 @@ function Login({ StoreLogin }) {
         />
 
         <button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "Signing Up..." : "Sign Up"}
+          {isSubmitting
+            ? mode === "signup"
+              ? "Signing Up..."
+              : "Logging In..."
+            : mode === "signup"
+              ? "Sign Up"
+              : "Log In"}
         </button>
       </form>
     </section>

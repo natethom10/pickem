@@ -229,7 +229,7 @@ function App() {
     );
   }
 
-  async function StoreLogin(username, email, password) {
+  async function handleSignUp(username, email, password) {
     setErrorMessage("");
 
     try {
@@ -249,6 +249,32 @@ function App() {
       setCurrentUserName(username);
       setLoggedIn(true);
     } catch (error) {
+      console.error("Sign up failed:", error);
+      setErrorMessage(String(error.message || error));
+    }
+  }
+
+  async function handleLogIn(username, password) {
+    setErrorMessage("");
+
+    try {
+      const loginResponse = await fetch("/api/auth-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+
+      if (!loginResponse.ok) {
+        const loginBody = await loginResponse.text();
+        throw new Error(
+          `Login request failed (${loginResponse.status}): ${loginBody || "No response body"}`
+        );
+      }
+
+      const data = await loginResponse.json();
+      setCurrentUserName(data.username || username);
+      setLoggedIn(true);
+    } catch (error) {
       console.error("Login flow failed:", error);
       setErrorMessage(String(error.message || error));
     }
@@ -261,7 +287,7 @@ function App() {
       {!loggedIn && (
         <section className="signup-page">
           <h1 className="signup-brand">PickEm</h1>
-          <Login StoreLogin={StoreLogin} />
+          <Login onSignUp={handleSignUp} onLogIn={handleLogIn} />
         </section>
       )}
       {!loggedIn && errorMessage && <p>{errorMessage}</p>}
