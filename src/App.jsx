@@ -110,6 +110,7 @@ const SAMPLE_GAMES = [
   { id: "g31", teamA: buildTeam("Michigan State", 2), teamB: buildTeam("Bryant", 15) },
   { id: "g32", teamA: buildTeam("Oregon", 5), teamB: buildTeam("Liberty", 12) },
 ];
+const PICK_SYNC_DELAY_MS = 2000;
 
 function App() {
   const [loggedIn, setLoggedIn] = useState(() => {
@@ -124,9 +125,11 @@ function App() {
   const [isEntriesSheetOpen, setIsEntriesSheetOpen] = useState(false);
   const [entryPendingDelete, setEntryPendingDelete] = useState(null);
   const [entriesLocked, setEntriesLocked] = useState(false);
+  const [tournamentStarted, setTournamentStarted] = useState(false);
   const [mobileCreateNotice, setMobileCreateNotice] = useState("");
   const [authPopupMessage, setAuthPopupMessage] = useState("");
   const mobileNoticeTimerRef = useRef(null);
+  const pickSyncTimersRef = useRef({});
   const reachedMaxEntries = entries.length >= 5;
 
   useEffect(() => {
@@ -149,6 +152,8 @@ function App() {
   }, [loggedIn]);
 
   function handleLogout() {
+    Object.values(pickSyncTimersRef.current).forEach((timerId) => clearTimeout(timerId));
+    pickSyncTimersRef.current = {};
     setLoggedIn(false);
     setCurrentUserName("");
     setEntries([]);
@@ -156,6 +161,7 @@ function App() {
     setIsEntriesSheetOpen(false);
     setEntryPendingDelete(null);
     setEntriesLocked(false);
+    setTournamentStarted(false);
     setMobileCreateNotice("");
     setErrorMessage("");
   }
@@ -165,6 +171,8 @@ function App() {
       if (mobileNoticeTimerRef.current) {
         clearTimeout(mobileNoticeTimerRef.current);
       }
+      Object.values(pickSyncTimersRef.current).forEach((timerId) => clearTimeout(timerId));
+      pickSyncTimersRef.current = {};
     };
   }, []);
 
@@ -182,6 +190,7 @@ function App() {
       const data = await response.json();
       const nextEntries = Array.isArray(data.entries) ? data.entries : [];
       setEntriesLocked(Boolean(data.entriesLocked));
+      setTournamentStarted(Boolean(data.tournamentStarted));
 
       setEntries(nextEntries);
       setSelectedEntry((previousSelected) => {
@@ -200,8 +209,8 @@ function App() {
 
   async function handleNewEntry() {
     if (!currentUserName) return;
-    if (entriesLocked) {
-      setErrorMessage("Entries are locked.");
+    if (tournamentStarted) {
+      setErrorMessage("Tournament has started. New entries are disabled.");
       return;
     }
     if (reachedMaxEntries) return;
@@ -220,6 +229,8 @@ function App() {
           const body = await response.text();
           if (body.toLowerCase().includes("maximum")) {
             setErrorMessage("Maximum of 5 entries reached.");
+          } else if (body.toLowerCase().includes("tournament")) {
+            setErrorMessage("Tournament has started. New entries are disabled.");
           } else {
             setErrorMessage("Entries are locked.");
           }
@@ -309,66 +320,167 @@ function App() {
   }
 
   function handlePickTeam(entryId, team) {
+    if (!currentUserName || !entryId || !team?.name) return;
+    if (entriesLocked) {
+      setErrorMessage("Entries are locked.");
+      return;
+    }
+
+    const selectedEntryObj = entries.find((entry) => entry.id === entryId);
+    if (!selectedEntryObj) return;
+    if (selectedEntryObj.isLocked) {
+      setErrorMessage("Entries are locked.");
+      return;
+    }
+
+    const existingPickName =
+      typeof selectedEntryObj.currentPick === "string"
+        ? selectedEntryObj.currentPick
+        : selectedEntryObj.currentPick?.name || "";
+    const isSamePick = existingPickName === team.name;
+    const nextCurrentPick = isSamePick
+      ? null
+      : {
+          name: team.name,
+          logo: team.logo || "",
+          seed: Number(team.seed),
+        };
+
     setEntries((prevEntries) =>
       prevEntries.map((entry) =>
         entry.id === entryId
-          ? (() => {
-              const existingPickName =
-                typeof entry.currentPick === "string"
-                  ? entry.currentPick
-                  : entry.currentPick?.name || "";
-              const isSamePick = existingPickName === team.name;
-
-              return {
-                ...entry,
-                currentPick: isSamePick
-                  ? null
-                  : {
-                      name: team.name,
-                      logo: team.logo,
-                    },
-              };
-            })()
+          ? {
+              ...entry,
+              currentPick: nextCurrentPick,
+            }
           : entry
       )
     );
+
+    const existingTimer = pickSyncTimersRef.current[entryId];
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+
+    pickSyncTimersRef.current[entryId] = setTimeout(async () => {
+      try {
+        const response = await fetch("/api/entries", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: entryId,
+            username: currentUserName,
+            currentPick: nextCurrentPick,
+          }),
+        });
+
+        if (response.status === 403) {
+          setErrorMessage("Entries are locked.");
+          await loadEntries(currentUserName, entryId);
+          return;
+        }
+
+        if (!response.ok) {
+          const body = await response.text();
+          throw new Error(`Update pick failed (${response.status}): ${body || "No response body"}`);
+        }
+
+        const data = await response.json().catch(() => ({}));
+        if (data?.entry) {
+          setEntries((prevEntries) =>
+            prevEntries.map((entry) =>
+              entry.id === entryId
+                ? {
+                    ...entry,
+                    currentPick: data.entry.currentPick ?? null,
+                  }
+                : entry
+            )
+          );
+        }
+      } catch (error) {
+        console.error("Update pick failed:", error);
+        setErrorMessage(String(error.message || error));
+        await loadEntries(currentUserName, entryId);
+      } finally {
+        delete pickSyncTimersRef.current[entryId];
+      }
+    }, PICK_SYNC_DELAY_MS);
   }
 
   function renderEntries(closeSheetOnSelect = false, extraClassName = "") {
     return (
       <div className={`entry-list ${extraClassName}`.trim()}>
-        {entries.map((entry) => (
-          <div
-            className={`entry-box ${selectedEntry === entry.id ? "selected" : ""}`}
-            key={entry.id}
-            role="button"
-            tabIndex={0}
-            onClick={() => handleSelectEntry(entry.id, closeSheetOnSelect)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                handleSelectEntry(entry.id, closeSheetOnSelect);
-              }
-            }}
-          >
-            <span className="entry-label">
-              {currentUserName} {entry.entryNumber}
-            </span>
-            {!entriesLocked && !entry.isLocked && (
-              <button
-                className="entry-delete"
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setEntryPendingDelete(entry);
-                }}
-                aria-label={`Delete ${currentUserName} ${entry.entryNumber}`}
-              >
-                x
-              </button>
-            )}
-          </div>
-        ))}
+        {entries.map((entry) => {
+          const isEliminated = entriesLocked && entry.isAlive === false;
+          const entryCurrentPickName =
+            typeof entry.currentPick === "string"
+              ? entry.currentPick
+              : entry.currentPick?.name || "";
+          const entryCurrentPickLogo =
+            typeof entry.currentPick === "object" ? entry.currentPick?.logo || "" : "";
+
+          return (
+            <div
+              className={`entry-box ${selectedEntry === entry.id ? "selected" : ""} ${
+                isEliminated ? "eliminated" : ""
+              }`}
+              key={entry.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => handleSelectEntry(entry.id, closeSheetOnSelect)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  handleSelectEntry(entry.id, closeSheetOnSelect);
+                }
+              }}
+            >
+              <div className="entry-main">
+                <div className="entry-label-wrap">
+                  <span className="entry-label">
+                    {currentUserName} {entry.entryNumber}
+                  </span>
+                  {isEliminated && (
+                    <span className="entry-eliminated-badge" aria-label="Eliminated">
+                      x
+                    </span>
+                  )}
+                </div>
+                <div className={`entry-pick-inline ${entryCurrentPickName ? "has-pick" : ""}`}>
+                  {entryCurrentPickName ? (
+                    <>
+                      {entryCurrentPickLogo && (
+                        <img
+                          className="entry-pick-logo"
+                          src={entryCurrentPickLogo}
+                          alt={`${entryCurrentPickName} logo`}
+                          loading="lazy"
+                        />
+                      )}
+                      <span className="entry-pick-name">{entryCurrentPickName}</span>
+                    </>
+                  ) : (
+                    <span className="entry-pick-empty">No team chosen</span>
+                  )}
+                </div>
+              </div>
+              {!entriesLocked && !entry.isLocked && (
+                <button
+                  className="entry-delete"
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setEntryPendingDelete(entry);
+                  }}
+                  aria-label={`Delete ${currentUserName} ${entry.entryNumber}`}
+                >
+                  x
+                </button>
+              )}
+            </div>
+          );
+        })}
       </div>
     );
   }
@@ -440,6 +552,7 @@ function App() {
   }
 
   const selectedEntryObject = entries.find((entry) => entry.id === selectedEntry) || null;
+  const picksDisabled = Boolean(entriesLocked || selectedEntryObject?.isLocked);
   const currentPickName =
     typeof selectedEntryObject?.currentPick === "string"
       ? selectedEntryObject.currentPick
@@ -448,6 +561,9 @@ function App() {
     typeof selectedEntryObject?.currentPick === "object"
       ? selectedEntryObject.currentPick?.logo || ""
       : "";
+  const selectedEntryEliminated = Boolean(
+    selectedEntryObject && entriesLocked && selectedEntryObject.isAlive === false
+  );
 
   return (
     <main className={loggedIn ? "home-shell" : "auth-shell"}>
@@ -472,7 +588,7 @@ function App() {
           </header>
           <section className="home-layout">
             <aside className="left-sidebar">
-              {!entriesLocked && (
+              {!entriesLocked && !tournamentStarted && (
                 <button
                   className="sidebar-button"
                   type="button"
@@ -520,7 +636,12 @@ function App() {
                             <p className="pick-section-content">{currentPickName}</p>
                           </div>
                         ) : (
-                          <p className="pick-section-content">No current pick</p>
+                          <p className="pick-section-content">
+                            No team was chosen.
+                            {selectedEntryEliminated && (
+                              <span className="current-pick-eliminated"> Eliminated</span>
+                            )}
+                          </p>
                         )}
                       </div>
                     </section>
@@ -567,6 +688,7 @@ function App() {
                                 currentPickName === game.teamA.name ? "selected" : ""
                               }`}
                               aria-pressed={currentPickName === game.teamA.name}
+                              disabled={picksDisabled}
                               onClick={() => handlePickTeam(selectedEntryObject.id, game.teamA)}
                             >
                               Pick ({game.teamA.seed}) {game.teamA.name}
@@ -594,6 +716,7 @@ function App() {
                                 currentPickName === game.teamB.name ? "selected" : ""
                               }`}
                               aria-pressed={currentPickName === game.teamB.name}
+                              disabled={picksDisabled}
                               onClick={() => handlePickTeam(selectedEntryObject.id, game.teamB)}
                             >
                               Pick ({game.teamB.seed}) {game.teamB.name}
