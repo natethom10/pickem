@@ -34,6 +34,7 @@ export default async function handler(req, res) {
       username,
       email,
       passwordHash,
+      totalEntries: 0,
       createdAt: new Date(),
     });
 

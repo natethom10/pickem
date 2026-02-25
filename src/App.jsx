@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Login from "./login/Login";
 
 function App() {
@@ -14,6 +14,8 @@ function App() {
   const [isEntriesSheetOpen, setIsEntriesSheetOpen] = useState(false);
   const [entryPendingDelete, setEntryPendingDelete] = useState(null);
   const [entriesLocked, setEntriesLocked] = useState(false);
+  const [mobileCreateNotice, setMobileCreateNotice] = useState("");
+  const mobileNoticeTimerRef = useRef(null);
 
   useEffect(() => {
     localStorage.setItem("pickem_logged_in", String(loggedIn));
@@ -29,6 +31,11 @@ function App() {
     loadEntries(currentUserName);
   }, [loggedIn, currentUserName]);
 
+  useEffect(() => {
+    if (!loggedIn) return;
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [loggedIn]);
+
   function handleLogout() {
     setLoggedIn(false);
     setCurrentUserName("");
@@ -37,8 +44,17 @@ function App() {
     setIsEntriesSheetOpen(false);
     setEntryPendingDelete(null);
     setEntriesLocked(false);
+    setMobileCreateNotice("");
     setErrorMessage("");
   }
+
+  useEffect(() => {
+    return () => {
+      if (mobileNoticeTimerRef.current) {
+        clearTimeout(mobileNoticeTimerRef.current);
+      }
+    };
+  }, []);
 
   async function loadEntries(username, preferredSelectedId = null) {
     try {
@@ -107,6 +123,13 @@ function App() {
         [...prevEntries, created].sort((a, b) => a.entryNumber - b.entryNumber)
       );
       setSelectedEntry(created.id);
+      setMobileCreateNotice(`${currentUserName} ${created.entryNumber} created`);
+      if (mobileNoticeTimerRef.current) {
+        clearTimeout(mobileNoticeTimerRef.current);
+      }
+      mobileNoticeTimerRef.current = setTimeout(() => {
+        setMobileCreateNotice("");
+      }, 1800);
     } catch (error) {
       console.error("Create entry failed:", error);
       setErrorMessage(String(error.message || error));
@@ -235,7 +258,12 @@ function App() {
 
   return (
     <main className={loggedIn ? "home-shell" : ""}>
-      {!loggedIn && <Login StoreLogin={StoreLogin} />}
+      {!loggedIn && (
+        <section className="signup-page">
+          <h1 className="signup-brand">PickEm</h1>
+          <Login StoreLogin={StoreLogin} />
+        </section>
+      )}
       {!loggedIn && errorMessage && <p>{errorMessage}</p>}
       {loggedIn && (
         <section className="home-page">
@@ -265,6 +293,7 @@ function App() {
               >
                 Entries ({entries.length})
               </button>
+              {mobileCreateNotice && <p className="mobile-create-notice">{mobileCreateNotice}</p>}
               {renderEntries(false, "desktop-entry-list")}
             </aside>
             <section className="home-main">

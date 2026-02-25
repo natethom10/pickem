@@ -17,8 +17,23 @@ main {
   padding: 1rem;
 }
 
+.signup-page {
+  width: min(460px, 100%);
+  transform: translateY(-48px);
+}
+
+.signup-brand {
+  margin: 0 0 0.9rem;
+  text-align: center;
+  font-size: clamp(2rem, 8vw, 3rem);
+  line-height: 1;
+  letter-spacing: 0.01em;
+  color: #111827;
+}
+
 .login-card {
   width: min(420px, 100%);
+  margin: 0 auto;
   padding: 1.5rem;
   border: 1px solid #e5e7eb;
   border-radius: 12px;
@@ -27,6 +42,7 @@ main {
 .login-card h1 {
   margin-top: 0;
   margin-bottom: 1rem;
+  text-align: center;
 }
 
 .login-form {
@@ -61,6 +77,7 @@ main {
 .home-page {
   width: 100vw;
   min-height: 100vh;
+  padding-top: env(safe-area-inset-top);
 }
 
 .home-header {
@@ -131,6 +148,10 @@ main {
 }
 
 .entries-launch {
+  display: none;
+}
+
+.mobile-create-notice {
   display: none;
 }
 
@@ -314,6 +335,20 @@ main {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    border-color: #111827;
+    box-shadow: 0 0 0 1px #111827 inset;
+  }
+
+  .mobile-create-notice {
+    display: block;
+    margin: 0.5rem 0 0;
+    padding: 0.45rem 0.6rem;
+    border: 1px solid #111827;
+    border-radius: 10px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #111827;
+    background: #f9fafb;
   }
 
   .desktop-entry-list {

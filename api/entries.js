@@ -14,6 +14,22 @@ function readJsonBody(req) {
   return req.body;
 }
 
+async function syncUserTotalEntries(db, username) {
+  const entriesCollection = db.collection("entries");
+  const loginsCollection = db.collection("logins");
+  const totalEntries = await entriesCollection.countDocuments({ username });
+
+  await loginsCollection.updateMany(
+    { username },
+    {
+      $set: {
+        totalEntries,
+        totalEntriesUpdatedAt: new Date(),
+      },
+    }
+  );
+}
+
 export default async function handler(req, res) {
   try {
     const db = await getDb();
@@ -83,6 +99,7 @@ export default async function handler(req, res) {
       };
 
       const result = await entriesCollection.insertOne(created);
+      await syncUserTotalEntries(db, cleanUsername);
 
       return res.status(201).json({
         entry: {
@@ -129,6 +146,8 @@ export default async function handler(req, res) {
       if (result.deletedCount === 0) {
         return res.status(404).json({ error: "entry not found" });
       }
+
+      await syncUserTotalEntries(db, username);
 
       return res.status(200).json({ ok: true });
     }
