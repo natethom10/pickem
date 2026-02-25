@@ -605,7 +605,7 @@ function App() {
                 aria-expanded={isEntriesSheetOpen}
                 aria-label="Toggle entries"
               >
-                Entries ({entries.length})
+                View / Switch Entries ({entries.length})
               </button>
               {mobileCreateNotice && <p className="mobile-create-notice">{mobileCreateNotice}</p>}
               {renderEntries(false, "desktop-entry-list")}
