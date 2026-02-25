@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 function Login({ StoreLogin }) {
-  const [fullName, setFullName] = useState("");
+  const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -12,7 +12,7 @@ function Login({ StoreLogin }) {
 
     setIsSubmitting(true);
     try {
-      await StoreLogin(fullName, email, password);
+      await StoreLogin(username, email, password);
     } finally {
       setIsSubmitting(false);
     }
@@ -22,14 +22,14 @@ function Login({ StoreLogin }) {
     <section className="login-card">
       <h1>Sign Up</h1>
       <form className="login-form" onSubmit={handleSubmit}>
-        <label htmlFor="fullName">Full Name</label>
+        <label htmlFor="username">Username</label>
         <input
-          id="fullName"
-          name="fullName"
+          id="username"
+          name="username"
           type="text"
-          autoComplete="name"
-          value={fullName}
-          onChange={(event) => setFullName(event.target.value)}
+          autoComplete="username"
+          value={username}
+          onChange={(event) => setUsername(event.target.value)}
           disabled={isSubmitting}
           required
         />

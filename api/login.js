@@ -21,17 +21,17 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { fullName, email, password } = readJsonBody(req);
+    const { username, email, password } = readJsonBody(req);
 
-    if (!fullName || !email || !password) {
-      return res.status(400).json({ error: "fullName, email, and password are required" });
+    if (!username || !email || !password) {
+      return res.status(400).json({ error: "username, email, and password are required" });
     }
 
     const db = await getDb();
     const passwordHash = await bcrypt.hash(password, 10);
 
     const result = await db.collection("logins").insertOne({
-      fullName,
+      username,
       email,
       passwordHash,
       createdAt: new Date(),
