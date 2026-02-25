@@ -586,6 +586,13 @@ main {
   padding: 0.35rem 0.5rem;
 }
 
+.admin-notice {
+  margin: 0.45rem 0 0;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: #166534;
+}
+
 .admin-user-card {
   border: 1px solid #e5e7eb;
   border-radius: 10px;
@@ -623,6 +630,19 @@ main {
   overflow-wrap: anywhere;
 }
 
+.admin-user-paid {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.admin-user-paid.paid-incomplete {
+  color: #b91c1c;
+}
+
+.admin-user-paid.paid-complete {
+  color: #166534;
+}
+
 .admin-user-count {
   border: 1px solid #d1d5db;
   border-radius: 999px;
@@ -634,6 +654,28 @@ main {
   justify-content: center;
   font-weight: 700;
   color: #111827;
+}
+
+.admin-user-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.admin-mark-all-paid {
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #111827;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.16rem 0.5rem;
+  cursor: pointer;
+}
+
+.admin-mark-all-paid:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .admin-user-entries {
@@ -680,6 +722,35 @@ main {
   overflow-wrap: anywhere;
   display: grid;
   gap: 0.2rem;
+}
+
+.admin-entry-paid {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.86rem;
+  color: #374151;
+}
+
+.paid-yes {
+  color: #166534;
+  font-weight: 700;
+}
+
+.paid-no {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
+.admin-paid-toggle {
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #111827;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  cursor: pointer;
 }
 
 .admin-pick-chip {
@@ -1062,5 +1133,17 @@ main {
 
   .admin-chart-panel {
     position: static;
+  }
+
+  .admin-users-list {
+    max-height: 52dvh;
+    overflow-y: auto;
+    padding-right: 0.2rem;
+  }
+
+  .admin-team-chart {
+    max-height: 52dvh;
+    overflow-y: auto;
+    padding-right: 0.2rem;
   }
 }

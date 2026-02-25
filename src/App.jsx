@@ -147,12 +147,14 @@ function App() {
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminEntriesLoading, setAdminEntriesLoading] = useState(false);
   const [adminEntriesError, setAdminEntriesError] = useState("");
+  const [adminNotice, setAdminNotice] = useState("");
   const [expandedAdminUsers, setExpandedAdminUsers] = useState({});
   const [adminSort, setAdminSort] = useState("username_asc");
   const [adminUsersCollapsed, setAdminUsersCollapsed] = useState(false);
   const [adminChartCollapsed, setAdminChartCollapsed] = useState(false);
   const mobileNoticeTimerRef = useRef(null);
   const pickSyncTimersRef = useRef({});
+  const adminNoticeTimerRef = useRef(null);
   const reachedMaxEntries = entries.length >= 5;
 
   useEffect(() => {
@@ -196,6 +198,7 @@ function App() {
     setAdminUsers([]);
     setAdminEntriesLoading(false);
     setAdminEntriesError("");
+    setAdminNotice("");
     setExpandedAdminUsers({});
     setAdminUsersCollapsed(false);
     setAdminChartCollapsed(false);
@@ -207,10 +210,23 @@ function App() {
       if (mobileNoticeTimerRef.current) {
         clearTimeout(mobileNoticeTimerRef.current);
       }
+      if (adminNoticeTimerRef.current) {
+        clearTimeout(adminNoticeTimerRef.current);
+      }
       Object.values(pickSyncTimersRef.current).forEach((timerId) => clearTimeout(timerId));
       pickSyncTimersRef.current = {};
     };
   }, []);
+
+  function setTransientAdminNotice(message) {
+    setAdminNotice(message);
+    if (adminNoticeTimerRef.current) {
+      clearTimeout(adminNoticeTimerRef.current);
+    }
+    adminNoticeTimerRef.current = setTimeout(() => {
+      setAdminNotice("");
+    }, 2200);
+  }
 
   async function loadEntries(username, preferredSelectedId = null) {
     try {
@@ -246,6 +262,7 @@ function App() {
   async function loadAdminEntries() {
     setAdminEntriesLoading(true);
     setAdminEntriesError("");
+    setAdminNotice("");
 
     try {
       const response = await fetch(`/api/admin-entries?t=${Date.now()}`);
@@ -289,6 +306,132 @@ function App() {
 
   function collapseAllAdminUsers() {
     setExpandedAdminUsers({});
+  }
+
+  async function updateAdminEntryPaid(entryId, isPaid) {
+    const previousUsers = adminUsers;
+
+    setAdminUsers((prevUsers) =>
+      prevUsers.map((user) => ({
+        ...user,
+        entries: user.entries.map((entry) =>
+          entry.id === entryId
+            ? {
+                ...entry,
+                isPaid,
+              }
+            : entry
+        ),
+      }))
+    );
+
+    try {
+      const response = await fetch("/api/admin-entries", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: entryId, isPaid }),
+      });
+
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`Paid update failed (${response.status}): ${body || "No response body"}`);
+      }
+    } catch (error) {
+      setAdminUsers(previousUsers);
+      console.error("Paid update failed:", error);
+      setAdminEntriesError(String(error.message || error));
+    }
+  }
+
+  async function markAllEntriesPaidForUser(user) {
+    if (!user?.usernameLower) return;
+
+    const previousUsers = adminUsers;
+    setAdminEntriesError("");
+
+    setAdminUsers((prevUsers) =>
+      prevUsers.map((candidate) =>
+        candidate.usernameLower === user.usernameLower
+          ? {
+              ...candidate,
+              entries: candidate.entries.map((entry) => ({ ...entry, isPaid: true })),
+            }
+          : candidate
+      )
+    );
+
+    try {
+      const response = await fetch("/api/admin-entries", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          usernameLower: user.usernameLower,
+          markAllPaid: true,
+        }),
+      });
+
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(
+          `Mark all paid failed (${response.status}): ${body || "No response body"}`
+        );
+      }
+    } catch (error) {
+      setAdminUsers(previousUsers);
+      console.error("Mark all paid failed:", error);
+      setAdminEntriesError(String(error.message || error));
+    }
+  }
+
+  async function copyAdminEmails() {
+    const emails = [
+      ...new Set(
+        adminUsers
+          .map((user) => String(user.email || "").trim())
+          .filter((email) => email.includes("@"))
+      ),
+    ];
+
+    if (emails.length === 0) {
+      setTransientAdminNotice("No emails available to copy.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(emails.join(", "));
+      setTransientAdminNotice(
+        `Copied ${emails.length} email${emails.length === 1 ? "" : "s"} to clipboard.`
+      );
+    } catch (error) {
+      console.error("Copy emails failed:", error);
+      setAdminEntriesError("Could not copy emails to clipboard.");
+    }
+  }
+
+  async function copyOutstandingEmails() {
+    const emails = [
+      ...new Set(
+        adminUsers
+          .filter((user) => (user.entries || []).some((entry) => !entry.isPaid))
+          .map((user) => String(user.email || "").trim())
+          .filter((email) => email.includes("@"))
+      ),
+    ];
+
+    if (emails.length === 0) {
+      setTransientAdminNotice("No outstanding unpaid emails to copy.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(emails.join(", "));
+      setTransientAdminNotice(
+        `Copied ${emails.length} unpaid email${emails.length === 1 ? "" : "s"} to clipboard.`
+      );
+    } catch (error) {
+      console.error("Copy outstanding emails failed:", error);
+      setAdminEntriesError("Could not copy outstanding emails to clipboard.");
+    }
   }
 
   async function confirmDeleteAdminEntry(target) {
@@ -339,6 +482,12 @@ function App() {
       const bName = String(b.username || "").toLowerCase();
       const aCount = Array.isArray(a.entries) ? a.entries.length : 0;
       const bCount = Array.isArray(b.entries) ? b.entries.length : 0;
+      const aUnpaid = Array.isArray(a.entries)
+        ? a.entries.filter((entry) => !entry.isPaid).length
+        : 0;
+      const bUnpaid = Array.isArray(b.entries)
+        ? b.entries.filter((entry) => !entry.isPaid).length
+        : 0;
 
       if (adminSort === "username_desc") {
         return bName.localeCompare(aName) || bCount - aCount;
@@ -350,6 +499,10 @@ function App() {
 
       if (adminSort === "entries_asc") {
         return aCount - bCount || aName.localeCompare(bName);
+      }
+
+      if (adminSort === "unpaid_desc") {
+        return bUnpaid - aUnpaid || aName.localeCompare(bName);
       }
 
       return aName.localeCompare(bName) || bCount - aCount;
@@ -989,18 +1142,35 @@ function App() {
                             <option value="username_desc">Username (Z-A)</option>
                             <option value="entries_desc">Entries (Most)</option>
                             <option value="entries_asc">Entries (Fewest)</option>
+                            <option value="unpaid_desc">Unpaid (Most)</option>
                           </select>
-                          <button
-                            type="button"
-                            className="admin-control-button"
-                            onClick={allAdminExpanded ? collapseAllAdminUsers : expandAllAdminUsers}
-                          >
-                            {allAdminExpanded ? "Close All" : "Open All"}
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          className="admin-control-button"
+                          onClick={allAdminExpanded ? collapseAllAdminUsers : expandAllAdminUsers}
+                        >
+                          {allAdminExpanded ? "Close All" : "Open All"}
+                        </button>
+                        <button type="button" className="admin-control-button" onClick={copyAdminEmails}>
+                          Copy Emails
+                        </button>
+                        <button
+                          type="button"
+                          className="admin-control-button"
+                          onClick={copyOutstandingEmails}
+                        >
+                          Copy Unpaid Emails
+                        </button>
+                      </div>
+                        {adminNotice && <p className="admin-notice">{adminNotice}</p>}
                         <div className="admin-users-list">
                           {displayedAdminUsers.map((user) => {
                             const isExpanded = Boolean(expandedAdminUsers[user.usernameLower]);
+                            const totalEntries = user.entries.length;
+                            const paidEntries = user.entries.filter((entry) => Boolean(entry.isPaid)).length;
+                            const paidPercent =
+                              totalEntries > 0 ? Math.round((paidEntries / totalEntries) * 100) : 0;
+                            const hasUnpaidEntries = totalEntries > paidEntries;
 
                             return (
                               <div className="admin-user-card" key={user.usernameLower}>
@@ -1013,8 +1183,28 @@ function App() {
                                   <span className="admin-user-header-main">
                                     <span className="admin-user-name">{user.username}</span>
                                     <span className="admin-user-email">{user.email || "No email"}</span>
+                                    <span
+                                      className={`admin-user-paid ${
+                                        paidPercent === 100 ? "paid-complete" : "paid-incomplete"
+                                      }`}
+                                    >
+                                      Paid: {paidPercent}% ({paidEntries}/{totalEntries})
+                                    </span>
                                   </span>
-                                  <span className="admin-user-count">{user.entries.length}</span>
+                                  <span className="admin-user-actions">
+                                    <button
+                                      type="button"
+                                      className="admin-mark-all-paid"
+                                      disabled={!hasUnpaidEntries}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        markAllEntriesPaidForUser(user);
+                                      }}
+                                    >
+                                      {hasUnpaidEntries ? "Mark All Paid" : "All Paid"}
+                                    </button>
+                                    <span className="admin-user-count">{user.entries.length}</span>
+                                  </span>
                                 </button>
                                 {isExpanded && (
                                   <div className="admin-user-entries">
@@ -1073,6 +1263,21 @@ function App() {
                                               ) : (
                                                 <span>None</span>
                                               )}
+                                            </div>
+                                            <div className="admin-entry-paid">
+                                              <span>Paid:</span>
+                                              <span className={entry.isPaid ? "paid-yes" : "paid-no"}>
+                                                {entry.isPaid ? "Yes" : "No"}
+                                              </span>
+                                              <button
+                                                type="button"
+                                                className="admin-paid-toggle"
+                                                onClick={() =>
+                                                  updateAdminEntryPaid(entry.id, !Boolean(entry.isPaid))
+                                                }
+                                              >
+                                                {entry.isPaid ? "Mark Unpaid" : "Mark Paid"}
+                                              </button>
                                             </div>
                                           </div>
                                           <button
