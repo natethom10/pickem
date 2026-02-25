@@ -578,7 +578,7 @@ function App() {
         <section className="home-page">
           <header className="home-header">
             <div className="header-left">
-              <span className="brand">PickEm</span>
+              <span className="brand">DunnBrosElim</span>
               <span className="brand-divider" aria-hidden="true" />
               <span className="current-user">{currentUserName}</span>
             </div>
