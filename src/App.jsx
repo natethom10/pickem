@@ -15,7 +15,9 @@ function App() {
   const [entryPendingDelete, setEntryPendingDelete] = useState(null);
   const [entriesLocked, setEntriesLocked] = useState(false);
   const [mobileCreateNotice, setMobileCreateNotice] = useState("");
+  const [authPopupMessage, setAuthPopupMessage] = useState("");
   const mobileNoticeTimerRef = useRef(null);
+  const reachedMaxEntries = entries.length >= 5;
 
   useEffect(() => {
     localStorage.setItem("pickem_logged_in", String(loggedIn));
@@ -92,6 +94,7 @@ function App() {
       setErrorMessage("Entries are locked.");
       return;
     }
+    if (reachedMaxEntries) return;
 
     setErrorMessage("");
 
@@ -104,7 +107,12 @@ function App() {
 
       if (!response.ok) {
         if (response.status === 403) {
-          setErrorMessage("Entries are locked.");
+          const body = await response.text();
+          if (body.toLowerCase().includes("maximum")) {
+            setErrorMessage("Maximum of 5 entries reached.");
+          } else {
+            setErrorMessage("Entries are locked.");
+          }
           await loadEntries(currentUserName, selectedEntry);
           return;
         }
@@ -240,6 +248,11 @@ function App() {
       });
 
       if (!loginResponse.ok) {
+        if (loginResponse.status === 409) {
+          setAuthPopupMessage("Username already exists. Please choose another username or log in.");
+          return;
+        }
+
         const loginBody = await loginResponse.text();
         throw new Error(
           `Login request failed (${loginResponse.status}): ${loginBody || "No response body"}`
@@ -265,6 +278,11 @@ function App() {
       });
 
       if (!loginResponse.ok) {
+        if (loginResponse.status === 401) {
+          setAuthPopupMessage("Invalid username or password.");
+          return;
+        }
+
         const loginBody = await loginResponse.text();
         throw new Error(
           `Login request failed (${loginResponse.status}): ${loginBody || "No response body"}`
@@ -306,8 +324,13 @@ function App() {
           <section className="home-layout">
             <aside className="left-sidebar">
               {!entriesLocked && (
-                <button className="sidebar-button" type="button" onClick={handleNewEntry}>
-                  New Entry
+                <button
+                  className="sidebar-button"
+                  type="button"
+                  onClick={handleNewEntry}
+                  disabled={reachedMaxEntries}
+                >
+                  {reachedMaxEntries ? "Max Entries Reached" : "New Entry"}
                 </button>
               )}
               <button
@@ -373,6 +396,19 @@ function App() {
                 onClick={() => confirmDeleteEntry(entryPendingDelete)}
               >
                 Delete
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {authPopupMessage && (
+        <div className="confirm-backdrop" onClick={() => setAuthPopupMessage("")}>
+          <section className="confirm-modal" onClick={(event) => event.stopPropagation()}>
+            <h2>Cannot Sign Up</h2>
+            <p>{authPopupMessage}</p>
+            <div className="confirm-actions">
+              <button type="button" className="confirm-cancel" onClick={() => setAuthPopupMessage("")}>
+                OK
               </button>
             </div>
           </section>

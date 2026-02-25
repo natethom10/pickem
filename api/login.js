@@ -22,17 +22,28 @@ export default async function handler(req, res) {
 
   try {
     const { username, email, password } = readJsonBody(req);
+    const cleanUsername = String(username || "").trim();
+    const cleanEmail = String(email || "").trim();
 
-    if (!username || !email || !password) {
+    if (!cleanUsername || !cleanEmail || !password) {
       return res.status(400).json({ error: "username, email, and password are required" });
     }
 
     const db = await getDb();
+    const existingUser = await db.collection("logins").findOne(
+      { username: cleanUsername },
+      { projection: { _id: 1 } }
+    );
+
+    if (existingUser) {
+      return res.status(409).json({ error: "username already exists" });
+    }
+
     const passwordHash = await bcrypt.hash(password, 10);
 
     const result = await db.collection("logins").insertOne({
-      username,
-      email,
+      username: cleanUsername,
+      email: cleanEmail,
       passwordHash,
       totalEntries: 0,
       createdAt: new Date(),

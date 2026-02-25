@@ -1,6 +1,8 @@
 import { ObjectId } from "mongodb";
 import { getDb } from "./_lib/mongodb.js";
 
+const MAX_ENTRIES_PER_USER = 5;
+
 function readJsonBody(req) {
   if (!req.body) return {};
   if (typeof req.body === "string") {
@@ -81,6 +83,10 @@ export default async function handler(req, res) {
         .find({ username: cleanUsername }, { projection: { entryNumber: 1 } })
         .sort({ entryNumber: 1 })
         .toArray();
+
+      if (existingEntries.length >= MAX_ENTRIES_PER_USER) {
+        return res.status(403).json({ error: "maximum of 5 entries reached" });
+      }
 
       let nextEntryNumber = 1;
       for (const entry of existingEntries) {
