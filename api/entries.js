@@ -16,20 +16,39 @@ function readJsonBody(req) {
   return req.body;
 }
 
+function normalizeUsername(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildUsernameMatch(rawUsername) {
+  const usernameLower = normalizeUsername(rawUsername);
+  return {
+    usernameLower,
+    match: {
+      $or: [
+        { usernameLower },
+        { username: new RegExp(`^${escapeRegex(usernameLower)}$`, "i") },
+      ],
+    },
+  };
+}
+
 async function syncUserTotalEntries(db, username) {
   const entriesCollection = db.collection("entries");
   const loginsCollection = db.collection("logins");
-  const totalEntries = await entriesCollection.countDocuments({ username });
+  const { match } = buildUsernameMatch(username);
+  const totalEntries = await entriesCollection.countDocuments(match);
 
-  await loginsCollection.updateMany(
-    { username },
-    {
-      $set: {
-        totalEntries,
-        totalEntriesUpdatedAt: new Date(),
-      },
-    }
-  );
+  await loginsCollection.updateMany(match, {
+    $set: {
+      totalEntries,
+      totalEntriesUpdatedAt: new Date(),
+    },
+  });
 }
 
 export default async function handler(req, res) {
@@ -50,8 +69,19 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "username is required" });
       }
 
+      const { match } = buildUsernameMatch(username);
       const entries = await entriesCollection
-        .find({ username }, { projection: { username: 1, entryNumber: 1, isLocked: 1, createdAt: 1 } })
+        .find(match, {
+          projection: {
+            username: 1,
+            usernameLower: 1,
+            entryNumber: 1,
+            isLocked: 1,
+            currentPick: 1,
+            previousPicks: 1,
+            createdAt: 1,
+          },
+        })
         .sort({ entryNumber: 1 })
         .toArray();
 
@@ -62,6 +92,8 @@ export default async function handler(req, res) {
           username: entry.username,
           entryNumber: entry.entryNumber,
           isLocked: Boolean(entry.isLocked),
+          currentPick: entry.currentPick ?? null,
+          previousPicks: Array.isArray(entry.previousPicks) ? entry.previousPicks : [],
           createdAt: entry.createdAt,
         })),
       });
@@ -79,8 +111,9 @@ export default async function handler(req, res) {
         return res.status(403).json({ error: "entries are locked; cannot create new entry" });
       }
 
+      const { usernameLower, match } = buildUsernameMatch(cleanUsername);
       const existingEntries = await entriesCollection
-        .find({ username: cleanUsername }, { projection: { entryNumber: 1 } })
+        .find(match, { projection: { entryNumber: 1 } })
         .sort({ entryNumber: 1 })
         .toArray();
 
@@ -99,8 +132,11 @@ export default async function handler(req, res) {
 
       const created = {
         username: cleanUsername,
+        usernameLower,
         entryNumber: nextEntryNumber,
         isLocked: false,
+        currentPick: null,
+        previousPicks: [],
         createdAt: new Date(),
       };
 
@@ -113,6 +149,8 @@ export default async function handler(req, res) {
           username: created.username,
           entryNumber: created.entryNumber,
           isLocked: created.isLocked,
+          currentPick: created.currentPick,
+          previousPicks: created.previousPicks,
           createdAt: created.createdAt,
         },
       });
@@ -134,8 +172,9 @@ export default async function handler(req, res) {
         return res.status(403).json({ error: "entries are locked and cannot be deleted" });
       }
 
+      const { match } = buildUsernameMatch(username);
       const existing = await entriesCollection.findOne(
-        { _id: new ObjectId(id), username },
+        { _id: new ObjectId(id), ...match },
         { projection: { isLocked: 1 } }
       );
 
@@ -147,7 +186,7 @@ export default async function handler(req, res) {
         return res.status(403).json({ error: "entry is locked and cannot be deleted" });
       }
 
-      const result = await entriesCollection.deleteOne({ _id: new ObjectId(id), username });
+      const result = await entriesCollection.deleteOne({ _id: new ObjectId(id), ...match });
 
       if (result.deletedCount === 0) {
         return res.status(404).json({ error: "entry not found" });

@@ -253,7 +253,7 @@ main {
 }
 
 .selected-entry-card {
-  max-width: 420px;
+  width: min(1100px, 100%);
   border: 1px solid #dbe3ee;
   border-radius: 12px;
   background: #ffffff;
@@ -275,6 +275,171 @@ main {
   font-size: 1.1rem;
   font-weight: 700;
   color: #111827;
+}
+
+.pick-sections {
+  margin-top: 0.9rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.entry-dashboard {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) minmax(280px, 2fr);
+  gap: 0.75rem;
+}
+
+.pick-section {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  background: #fafafa;
+}
+
+.pick-section.wide {
+  grid-column: auto;
+  min-height: 130px;
+}
+
+.current-pick-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.current-pick-value {
+  flex: 1;
+  display: flex;
+}
+
+.current-pick-value.has-pick {
+  align-items: center;
+  justify-content: center;
+}
+
+.pick-section-title {
+  margin: 0;
+  color: #6b7280;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.pick-section-content {
+  margin: 0.4rem 0 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #111827;
+}
+
+.current-pick-display {
+  margin-top: 0.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.current-pick-logo {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+}
+
+.current-pick-display .pick-section-content {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.previous-picks-list {
+  margin: 0.45rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.previous-picks-list li {
+  margin-bottom: 0.25rem;
+  color: #111827;
+}
+
+.sample-games-wrap {
+  margin-top: 0.9rem;
+  width: min(1180px, 100%);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.sample-games-grid {
+  margin-top: 0.55rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.6rem;
+}
+
+.sample-game-card {
+  flex: 0 1 calc((100% - 1.2rem) / 3);
+  max-width: calc((100% - 1.2rem) / 3);
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 0.75rem 0.85rem;
+  background: #fafafa;
+}
+
+.sample-game-matchup {
+  margin-top: 0.55rem;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.sample-team {
+  display: grid;
+  gap: 0.55rem;
+  justify-items: center;
+}
+
+.sample-team-name {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #111827;
+}
+
+.sample-team-logo {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+}
+
+.sample-game-vs {
+  margin: 0;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: #6b7280;
+  text-transform: uppercase;
+}
+
+.sample-game-pick {
+  border: 1px solid #111827;
+  background: #ffffff;
+  color: #111827;
+  border-radius: 8px;
+  padding: 0.45rem 0.65rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sample-game-pick.selected {
+  background: #111827;
+  color: #ffffff;
+}
+
+.sample-game-pick-icon {
+  margin-left: 0.35rem;
+  font-weight: 700;
 }
 
 .entries-sheet-backdrop {
@@ -429,5 +594,23 @@ main {
     min-height: 0;
     margin-top: 0.85rem;
     padding: 0 1rem 1rem;
+  }
+
+  .entry-dashboard {
+    grid-template-columns: 1fr;
+  }
+
+  .pick-section.wide {
+    min-height: 0;
+  }
+
+  .sample-games-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .sample-game-card {
+    flex: none;
+    max-width: none;
   }
 }

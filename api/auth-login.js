@@ -14,6 +14,27 @@ function readJsonBody(req) {
   return req.body;
 }
 
+function normalizeUsername(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildUsernameMatch(rawUsername) {
+  const usernameLower = normalizeUsername(rawUsername);
+  return {
+    usernameLower,
+    match: {
+      $or: [
+        { usernameLower },
+        { username: new RegExp(`^${escapeRegex(usernameLower)}$`, "i") },
+      ],
+    },
+  };
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
@@ -28,8 +49,9 @@ export default async function handler(req, res) {
     }
 
     const db = await getDb();
+    const { match } = buildUsernameMatch(username);
     const user = await db.collection("logins").findOne(
-      { username },
+      match,
       { projection: { username: 1, passwordHash: 1 } }
     );
 

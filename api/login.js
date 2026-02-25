@@ -14,6 +14,27 @@ function readJsonBody(req) {
   return req.body;
 }
 
+function normalizeUsername(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildUsernameMatch(rawUsername) {
+  const usernameLower = normalizeUsername(rawUsername);
+  return {
+    usernameLower,
+    match: {
+      $or: [
+        { usernameLower },
+        { username: new RegExp(`^${escapeRegex(usernameLower)}$`, "i") },
+      ],
+    },
+  };
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
@@ -24,16 +45,14 @@ export default async function handler(req, res) {
     const { username, email, password } = readJsonBody(req);
     const cleanUsername = String(username || "").trim();
     const cleanEmail = String(email || "").trim();
+    const { usernameLower, match } = buildUsernameMatch(cleanUsername);
 
     if (!cleanUsername || !cleanEmail || !password) {
       return res.status(400).json({ error: "username, email, and password are required" });
     }
 
     const db = await getDb();
-    const existingUserByUsername = await db.collection("logins").findOne(
-      { username: cleanUsername },
-      { projection: { _id: 1 } }
-    );
+    const existingUserByUsername = await db.collection("logins").findOne(match, { projection: { _id: 1 } });
 
     if (existingUserByUsername) {
       return res.status(409).json({ error: "username already exists" });
@@ -52,6 +71,7 @@ export default async function handler(req, res) {
 
     const result = await db.collection("logins").insertOne({
       username: cleanUsername,
+      usernameLower,
       email: cleanEmail,
       passwordHash,
       totalEntries: 0,
