@@ -30,13 +30,22 @@ export default async function handler(req, res) {
     }
 
     const db = await getDb();
-    const existingUser = await db.collection("logins").findOne(
+    const existingUserByUsername = await db.collection("logins").findOne(
       { username: cleanUsername },
       { projection: { _id: 1 } }
     );
 
-    if (existingUser) {
+    if (existingUserByUsername) {
       return res.status(409).json({ error: "username already exists" });
+    }
+
+    const existingUserByEmail = await db.collection("logins").findOne(
+      { email: cleanEmail },
+      { projection: { _id: 1 } }
+    );
+
+    if (existingUserByEmail) {
+      return res.status(409).json({ error: "email already exists" });
     }
 
     const passwordHash = await bcrypt.hash(password, 10);

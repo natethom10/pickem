@@ -19,7 +19,11 @@ main {
 
 .signup-page {
   width: min(460px, 100%);
-  transform: translateY(-48px);
+}
+
+.auth-shell {
+  place-items: start center;
+  padding-top: 2.25rem;
 }
 
 .signup-brand {

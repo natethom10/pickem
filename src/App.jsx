@@ -249,7 +249,12 @@ function App() {
 
       if (!loginResponse.ok) {
         if (loginResponse.status === 409) {
-          setAuthPopupMessage("Username already exists. Please choose another username or log in.");
+          const conflict = await loginResponse.json().catch(() => ({}));
+          if (conflict?.error === "email already exists") {
+            setAuthPopupMessage("Email already exists. Please use another email or log in.");
+          } else {
+            setAuthPopupMessage("Username already exists. Please choose another username or log in.");
+          }
           return;
         }
 
@@ -301,7 +306,7 @@ function App() {
   const selectedEntryObject = entries.find((entry) => entry.id === selectedEntry) || null;
 
   return (
-    <main className={loggedIn ? "home-shell" : ""}>
+    <main className={loggedIn ? "home-shell" : "auth-shell"}>
       {!loggedIn && (
         <section className="signup-page">
           <h1 className="signup-brand">PickEm</h1>

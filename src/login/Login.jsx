@@ -42,8 +42,6 @@ function Login({ onSignUp, onLogIn }) {
         </button>
       </div>
 
-      <h1>{mode === "signup" ? "Sign Up" : "Log In"}</h1>
-
       <form className="login-form" onSubmit={handleSubmit}>
         <label htmlFor="username">Username</label>
         <input
