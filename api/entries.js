@@ -95,7 +95,11 @@ export default async function handler(req, res) {
       }
 
       if (entriesLocked) {
-        await syncEntryAlivenessForUser(entriesCollection, username);
+        try {
+          await syncEntryAlivenessForUser(entriesCollection, username);
+        } catch (syncError) {
+          console.error("Failed to sync entry aliveness on GET", syncError);
+        }
       }
 
       const { match } = buildUsernameMatch(username);
@@ -123,7 +127,8 @@ export default async function handler(req, res) {
           username: entry.username,
           entryNumber: entry.entryNumber,
           isLocked: Boolean(entry.isLocked),
-          isAlive: entry.isAlive !== false,
+          isAlive:
+            typeof entry.isAlive === "boolean" ? entry.isAlive : Boolean(entry.currentPick),
           currentPick: entry.currentPick ?? null,
           previousPicks: Array.isArray(entry.previousPicks) ? entry.previousPicks : [],
           createdAt: entry.createdAt,
@@ -251,7 +256,9 @@ export default async function handler(req, res) {
         {
           $set: {
             currentPick: normalizedCurrentPick,
+            isAlive: Boolean(normalizedCurrentPick),
             currentPickUpdatedAt: new Date(),
+            isAliveUpdatedAt: new Date(),
           },
         }
       );

@@ -252,7 +252,7 @@ function App() {
         [...prevEntries, created].sort((a, b) => a.entryNumber - b.entryNumber)
       );
       setSelectedEntry(created.id);
-      setMobileCreateNotice(`${currentUserName} ${created.entryNumber} created`);
+      setMobileCreateNotice(`${currentUserName} (${created.entryNumber}) created`);
       if (mobileNoticeTimerRef.current) {
         clearTimeout(mobileNoticeTimerRef.current);
       }
@@ -439,7 +439,7 @@ function App() {
               <div className="entry-main">
                 <div className="entry-label-wrap">
                   <span className="entry-label">
-                    {currentUserName} {entry.entryNumber}
+                    {currentUserName} ({entry.entryNumber})
                   </span>
                   {isEliminated && (
                     <span className="entry-eliminated-badge" aria-label="Eliminated">
@@ -473,7 +473,7 @@ function App() {
                     event.stopPropagation();
                     setEntryPendingDelete(entry);
                   }}
-                  aria-label={`Delete ${currentUserName} ${entry.entryNumber}`}
+                  aria-label={`Delete ${currentUserName} (${entry.entryNumber})`}
                 >
                   x
                 </button>
@@ -617,7 +617,7 @@ function App() {
                     <section className="pick-section compact">
                       <p className="pick-section-title">Selected Entry</p>
                       <p className="pick-section-content">
-                        {currentUserName} {selectedEntryObject.entryNumber}
+                        {currentUserName} ({selectedEntryObject.entryNumber})
                       </p>
                     </section>
                     <section className="pick-section compact current-pick-section">
@@ -759,7 +759,7 @@ function App() {
           <section className="confirm-modal" onClick={(event) => event.stopPropagation()}>
             <h2>Delete Entry</h2>
             <p>
-              Delete "{currentUserName} {entryPendingDelete.entryNumber}"?
+              Delete "{currentUserName} ({entryPendingDelete.entryNumber})"?
             </p>
             <div className="confirm-actions">
               <button
