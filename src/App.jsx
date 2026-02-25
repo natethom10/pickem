@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Login from "./login/Login";
 
 const TEAM_LOGOS = {
@@ -76,6 +76,16 @@ function buildTeam(name, seed) {
   };
 }
 
+function getPickName(pick) {
+  return typeof pick === "string" ? pick : pick?.name || "";
+}
+
+function getPickLogo(pick) {
+  if (typeof pick === "object" && pick?.logo) return pick.logo;
+  const name = getPickName(pick);
+  return TEAM_LOGOS[name] || "";
+}
+
 const SAMPLE_GAMES = [
   { id: "g1", teamA: buildTeam("Creighton", 9), teamB: buildTeam("Louisville", 8) },
   { id: "g2", teamA: buildTeam("Purdue", 4), teamB: buildTeam("High Point", 13) },
@@ -111,6 +121,7 @@ const SAMPLE_GAMES = [
   { id: "g32", teamA: buildTeam("Oregon", 5), teamB: buildTeam("Liberty", 12) },
 ];
 const PICK_SYNC_DELAY_MS = 2000;
+const ADMIN_USER_ALLOWLIST = new Set(["natethom", "derek3dunn", "ddunn23"]);
 
 function App() {
   const [loggedIn, setLoggedIn] = useState(() => {
@@ -124,10 +135,22 @@ function App() {
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [isEntriesSheetOpen, setIsEntriesSheetOpen] = useState(false);
   const [entryPendingDelete, setEntryPendingDelete] = useState(null);
+  const [adminEntryPendingDelete, setAdminEntryPendingDelete] = useState(null);
   const [entriesLocked, setEntriesLocked] = useState(false);
   const [tournamentStarted, setTournamentStarted] = useState(false);
   const [mobileCreateNotice, setMobileCreateNotice] = useState("");
   const [authPopupMessage, setAuthPopupMessage] = useState("");
+  const [activeHomeTab, setActiveHomeTab] = useState(() => {
+    const saved = localStorage.getItem("pickem_active_home_tab");
+    return saved === "admin" ? "admin" : "games";
+  });
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [adminEntriesLoading, setAdminEntriesLoading] = useState(false);
+  const [adminEntriesError, setAdminEntriesError] = useState("");
+  const [expandedAdminUsers, setExpandedAdminUsers] = useState({});
+  const [adminSort, setAdminSort] = useState("username_asc");
+  const [adminUsersCollapsed, setAdminUsersCollapsed] = useState(false);
+  const [adminChartCollapsed, setAdminChartCollapsed] = useState(false);
   const mobileNoticeTimerRef = useRef(null);
   const pickSyncTimersRef = useRef({});
   const reachedMaxEntries = entries.length >= 5;
@@ -140,6 +163,10 @@ function App() {
       localStorage.removeItem("pickem_user_name");
     }
   }, [loggedIn, currentUserName]);
+
+  useEffect(() => {
+    localStorage.setItem("pickem_active_home_tab", activeHomeTab);
+  }, [activeHomeTab]);
 
   useEffect(() => {
     if (!loggedIn || !currentUserName) return;
@@ -160,9 +187,18 @@ function App() {
     setSelectedEntry(null);
     setIsEntriesSheetOpen(false);
     setEntryPendingDelete(null);
+    setAdminEntryPendingDelete(null);
     setEntriesLocked(false);
     setTournamentStarted(false);
     setMobileCreateNotice("");
+    setActiveHomeTab("games");
+    localStorage.removeItem("pickem_active_home_tab");
+    setAdminUsers([]);
+    setAdminEntriesLoading(false);
+    setAdminEntriesError("");
+    setExpandedAdminUsers({});
+    setAdminUsersCollapsed(false);
+    setAdminChartCollapsed(false);
     setErrorMessage("");
   }
 
@@ -206,6 +242,150 @@ function App() {
       setErrorMessage(String(error.message || error));
     }
   }
+
+  async function loadAdminEntries() {
+    setAdminEntriesLoading(true);
+    setAdminEntriesError("");
+
+    try {
+      const response = await fetch(`/api/admin-entries?t=${Date.now()}`);
+
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`Admin entries fetch failed (${response.status}): ${body || "No response body"}`);
+      }
+
+      const data = await response.json();
+      setAdminUsers(Array.isArray(data.users) ? data.users : []);
+    } catch (error) {
+      console.error("Load admin entries failed:", error);
+      setAdminEntriesError(String(error.message || error));
+    } finally {
+      setAdminEntriesLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!loggedIn) return;
+    if (!ADMIN_USER_ALLOWLIST.has(currentUserName.trim().toLowerCase())) return;
+    if (activeHomeTab !== "admin") return;
+    loadAdminEntries();
+  }, [loggedIn, activeHomeTab, currentUserName]);
+
+  function toggleAdminUser(usernameLower) {
+    setExpandedAdminUsers((prev) => ({
+      ...prev,
+      [usernameLower]: !prev[usernameLower],
+    }));
+  }
+
+  function expandAllAdminUsers() {
+    const next = {};
+    for (const user of adminUsers) {
+      next[user.usernameLower] = true;
+    }
+    setExpandedAdminUsers(next);
+  }
+
+  function collapseAllAdminUsers() {
+    setExpandedAdminUsers({});
+  }
+
+  async function confirmDeleteAdminEntry(target) {
+    if (!target?.id || !target?.username) {
+      setAdminEntryPendingDelete(null);
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `/api/entries?id=${encodeURIComponent(target.id)}&username=${encodeURIComponent(target.username)}`,
+        { method: "DELETE" }
+      );
+
+      if (!response.ok) {
+        const body = await response.text();
+        if (response.status === 403) {
+          setAdminEntriesError("Entries are locked and cannot be deleted.");
+        } else {
+          setAdminEntriesError(
+            `Delete failed (${response.status}): ${body || "No response body"}`
+          );
+        }
+        return;
+      }
+
+      await loadAdminEntries();
+      if (
+        currentUserName &&
+        target.username &&
+        currentUserName.toLowerCase() === String(target.username).toLowerCase()
+      ) {
+        await loadEntries(currentUserName, selectedEntry);
+      }
+    } catch (error) {
+      console.error("Admin delete failed:", error);
+      setAdminEntriesError(String(error.message || error));
+    } finally {
+      setAdminEntryPendingDelete(null);
+    }
+  }
+
+  const displayedAdminUsers = useMemo(() => {
+    const users = [...adminUsers];
+
+    users.sort((a, b) => {
+      const aName = String(a.username || "").toLowerCase();
+      const bName = String(b.username || "").toLowerCase();
+      const aCount = Array.isArray(a.entries) ? a.entries.length : 0;
+      const bCount = Array.isArray(b.entries) ? b.entries.length : 0;
+
+      if (adminSort === "username_desc") {
+        return bName.localeCompare(aName) || bCount - aCount;
+      }
+
+      if (adminSort === "entries_desc") {
+        return bCount - aCount || aName.localeCompare(bName);
+      }
+
+      if (adminSort === "entries_asc") {
+        return aCount - bCount || aName.localeCompare(bName);
+      }
+
+      return aName.localeCompare(bName) || bCount - aCount;
+    });
+
+    return users;
+  }, [adminUsers, adminSort]);
+
+  const allAdminExpanded =
+    displayedAdminUsers.length > 0 &&
+    displayedAdminUsers.every((user) => Boolean(expandedAdminUsers[user.usernameLower]));
+
+  const teamSelectionCounts = useMemo(() => {
+    const counts = new Map();
+    const noSelectionKey = "__NO_SELECTION__";
+
+    for (const user of adminUsers) {
+      for (const entry of user.entries || []) {
+        const pickName = getPickName(entry.currentPick);
+        if (!pickName) {
+          counts.set(noSelectionKey, (counts.get(noSelectionKey) || 0) + 1);
+        } else {
+          counts.set(pickName, (counts.get(pickName) || 0) + 1);
+        }
+      }
+    }
+
+    return [...counts.entries()]
+      .map(([teamName, count]) => ({
+        teamName: teamName === noSelectionKey ? "No Team Chosen" : teamName,
+        count,
+        logo: teamName === noSelectionKey ? "" : TEAM_LOGOS[teamName] || "",
+        isNoSelection: teamName === noSelectionKey,
+      }))
+      .sort((a, b) => b.count - a.count || a.teamName.localeCompare(b.teamName));
+  }, [adminUsers]);
 
   async function handleNewEntry() {
     if (!currentUserName) return;
@@ -552,15 +732,11 @@ function App() {
   }
 
   const selectedEntryObject = entries.find((entry) => entry.id === selectedEntry) || null;
+  const canAccessAdminTabs = ADMIN_USER_ALLOWLIST.has(currentUserName.trim().toLowerCase());
+  const effectiveHomeTab = canAccessAdminTabs ? activeHomeTab : "games";
   const picksDisabled = Boolean(entriesLocked || selectedEntryObject?.isLocked);
-  const currentPickName =
-    typeof selectedEntryObject?.currentPick === "string"
-      ? selectedEntryObject.currentPick
-      : selectedEntryObject?.currentPick?.name || "";
-  const currentPickLogo =
-    typeof selectedEntryObject?.currentPick === "object"
-      ? selectedEntryObject.currentPick?.logo || ""
-      : "";
+  const currentPickName = getPickName(selectedEntryObject?.currentPick);
+  const currentPickLogo = getPickLogo(selectedEntryObject?.currentPick);
   const selectedEntryEliminated = Boolean(
     selectedEntryObject && entriesLocked && selectedEntryObject.isAlive === false
   );
@@ -586,155 +762,397 @@ function App() {
               Log Out
             </button>
           </header>
-          <section className="home-layout">
-            <aside className="left-sidebar">
-              {!entriesLocked && !tournamentStarted && (
+          {canAccessAdminTabs && (
+            <section className="home-tabs">
+              <div className="home-tab-buttons">
                 <button
-                  className="sidebar-button"
                   type="button"
-                  onClick={handleNewEntry}
-                  disabled={reachedMaxEntries}
+                  className={`home-tab-button ${effectiveHomeTab === "games" ? "active" : ""}`}
+                  onClick={() => setActiveHomeTab("games")}
                 >
-                  {reachedMaxEntries ? "Max Entries Reached" : "New Entry"}
+                  Game
                 </button>
-              )}
-              <button
-                className="entries-launch"
-                type="button"
-                onClick={() => setIsEntriesSheetOpen(true)}
-                aria-expanded={isEntriesSheetOpen}
-                aria-label="Toggle entries"
-              >
-                View / Switch Entries ({entries.length})
-              </button>
-              {mobileCreateNotice && <p className="mobile-create-notice">{mobileCreateNotice}</p>}
-              {renderEntries(false, "desktop-entry-list")}
-            </aside>
-            <section className="home-main">
-              <div className="selected-entry-card">
-                {selectedEntryObject ? (
-                  <div className="entry-dashboard">
-                    <section className="pick-section compact">
-                      <p className="pick-section-title">Selected Entry</p>
-                      <p className="pick-section-content">
-                        {currentUserName} ({selectedEntryObject.entryNumber})
-                      </p>
-                    </section>
-                    <section className="pick-section compact current-pick-section">
-                      <p className="pick-section-title">Current Pick</p>
-                      <div className={`current-pick-value ${currentPickName ? "has-pick" : ""}`}>
-                        {currentPickName ? (
-                          <div className="current-pick-display">
-                            {currentPickLogo && (
-                              <img
-                                className="current-pick-logo"
-                                src={currentPickLogo}
-                                alt={`${currentPickName} logo`}
-                                loading="lazy"
-                              />
-                            )}
-                            <p className="pick-section-content">{currentPickName}</p>
-                          </div>
-                        ) : (
-                          <p className="pick-section-content">
-                            No team was chosen.
-                            {selectedEntryEliminated && (
-                              <span className="current-pick-eliminated"> Eliminated</span>
-                            )}
-                          </p>
-                        )}
-                      </div>
-                    </section>
+                <button
+                  type="button"
+                  className={`home-tab-button ${effectiveHomeTab === "admin" ? "active" : ""}`}
+                  onClick={() => setActiveHomeTab("admin")}
+                >
+                  Admin
+                </button>
+              </div>
+            </section>
+          )}
+          {effectiveHomeTab === "games" && (
+            <section className="home-layout">
+              <aside className="left-sidebar">
+                {!entriesLocked && !tournamentStarted && (
+                  <button
+                    className="sidebar-button"
+                    type="button"
+                    onClick={handleNewEntry}
+                    disabled={reachedMaxEntries}
+                  >
+                    {reachedMaxEntries ? "Max Entries Reached" : "New Entry"}
+                  </button>
+                )}
+                <button
+                  className="entries-launch"
+                  type="button"
+                  onClick={() => setIsEntriesSheetOpen(true)}
+                  aria-expanded={isEntriesSheetOpen}
+                  aria-label="Toggle entries"
+                >
+                  View / Switch Entries ({entries.length})
+                </button>
+                {mobileCreateNotice && <p className="mobile-create-notice">{mobileCreateNotice}</p>}
+                {renderEntries(false, "desktop-entry-list")}
+              </aside>
+              <section className="home-main">
+                <div className="selected-entry-card">
+                  {selectedEntryObject ? (
+                    <div className="entry-dashboard">
+                      <section className="pick-section compact">
+                        <p className="pick-section-title">Selected Entry</p>
+                        <p className="pick-section-content">
+                          {currentUserName} ({selectedEntryObject.entryNumber})
+                        </p>
+                      </section>
+                      <section className="pick-section compact current-pick-section">
+                        <p className="pick-section-title">Current Pick</p>
+                        <div className={`current-pick-value ${currentPickName ? "has-pick" : ""}`}>
+                          {currentPickName ? (
+                            <div className="current-pick-display">
+                              {currentPickLogo && (
+                                <img
+                                  className="current-pick-logo"
+                                  src={currentPickLogo}
+                                  alt={`${currentPickName} logo`}
+                                  loading="lazy"
+                                />
+                              )}
+                              <p className="pick-section-content">{currentPickName}</p>
+                            </div>
+                          ) : (
+                            <p className="pick-section-content">
+                              No team was chosen.
+                              {selectedEntryEliminated && (
+                                <span className="current-pick-eliminated"> Eliminated</span>
+                              )}
+                            </p>
+                          )}
+                        </div>
+                      </section>
                     <section className="pick-section wide">
                       <p className="pick-section-title">Previous Picks</p>
                       {selectedEntryObject.previousPicks?.length ? (
                         <ul className="previous-picks-list">
-                          {selectedEntryObject.previousPicks.map((pick, index) => (
-                            <li key={`${selectedEntryObject.id}-pick-${index}`}>{pick}</li>
-                          ))}
+                          {selectedEntryObject.previousPicks.map((pick, index) => {
+                            const pickName = getPickName(pick);
+                            const pickLogo = getPickLogo(pick);
+
+                            return (
+                              <li key={`${selectedEntryObject.id}-pick-${index}`}>
+                                {pickLogo && (
+                                  <img
+                                    className="previous-pick-logo"
+                                    src={pickLogo}
+                                    alt={`${pickName} logo`}
+                                    loading="lazy"
+                                  />
+                                )}
+                                <span>{pickName}</span>
+                              </li>
+                            );
+                          })}
                         </ul>
                       ) : (
                         <p className="pick-section-content">No previous picks</p>
-                      )}
-                    </section>
-                  </div>
+                        )}
+                      </section>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="selected-entry-label">Selected Entry</p>
+                      <p className="selected-entry-value">None selected</p>
+                    </>
+                  )}
+                </div>
+                {selectedEntryObject ? (
+                  <section className="sample-games-wrap">
+                    <p className="pick-section-title">Round of 64</p>
+                    <div className="sample-games-grid">
+                      {SAMPLE_GAMES.map((game) => (
+                        <article className="sample-game-card" key={game.id}>
+                          <div className="sample-game-matchup">
+                            <div className="sample-team">
+                              <p className="sample-team-name">
+                                ({game.teamA.seed}) {game.teamA.name}
+                              </p>
+                              <img
+                                className="sample-team-logo"
+                                src={game.teamA.logo}
+                                alt={`${game.teamA.name} logo`}
+                                loading="lazy"
+                              />
+                              <button
+                                type="button"
+                                className={`sample-game-pick ${
+                                  currentPickName === game.teamA.name ? "selected" : ""
+                                }`}
+                                aria-pressed={currentPickName === game.teamA.name}
+                                disabled={picksDisabled}
+                                onClick={() => handlePickTeam(selectedEntryObject.id, game.teamA)}
+                              >
+                                Pick ({game.teamA.seed}) {game.teamA.name}
+                                {currentPickName === game.teamA.name && (
+                                  <span className="sample-game-pick-icon" aria-hidden="true">
+                                    ✓
+                                  </span>
+                                )}
+                              </button>
+                            </div>
+                            <p className="sample-game-vs">VS</p>
+                            <div className="sample-team">
+                              <p className="sample-team-name">
+                                ({game.teamB.seed}) {game.teamB.name}
+                              </p>
+                              <img
+                                className="sample-team-logo"
+                                src={game.teamB.logo}
+                                alt={`${game.teamB.name} logo`}
+                                loading="lazy"
+                              />
+                              <button
+                                type="button"
+                                className={`sample-game-pick ${
+                                  currentPickName === game.teamB.name ? "selected" : ""
+                                }`}
+                                aria-pressed={currentPickName === game.teamB.name}
+                                disabled={picksDisabled}
+                                onClick={() => handlePickTeam(selectedEntryObject.id, game.teamB)}
+                              >
+                                Pick ({game.teamB.seed}) {game.teamB.name}
+                                {currentPickName === game.teamB.name && (
+                                  <span className="sample-game-pick-icon" aria-hidden="true">
+                                    ✓
+                                  </span>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
                 ) : (
-                  <>
-                    <p className="selected-entry-label">Selected Entry</p>
-                    <p className="selected-entry-value">None selected</p>
-                  </>
+                  <section className="sample-games-wrap">
+                    <p className="pick-section-content">Select an entry to view games.</p>
+                  </section>
                 )}
-              </div>
-              {selectedEntryObject && (
-                <section className="sample-games-wrap">
-                  <p className="pick-section-title">Round of 64</p>
-                  <div className="sample-games-grid">
-                    {SAMPLE_GAMES.map((game) => (
-                      <article className="sample-game-card" key={game.id}>
-                        <div className="sample-game-matchup">
-                          <div className="sample-team">
-                            <p className="sample-team-name">
-                              ({game.teamA.seed}) {game.teamA.name}
-                            </p>
-                            <img
-                              className="sample-team-logo"
-                              src={game.teamA.logo}
-                              alt={`${game.teamA.name} logo`}
-                              loading="lazy"
-                            />
-                            <button
-                              type="button"
-                              className={`sample-game-pick ${
-                                currentPickName === game.teamA.name ? "selected" : ""
-                              }`}
-                              aria-pressed={currentPickName === game.teamA.name}
-                              disabled={picksDisabled}
-                              onClick={() => handlePickTeam(selectedEntryObject.id, game.teamA)}
-                            >
-                              Pick ({game.teamA.seed}) {game.teamA.name}
-                              {currentPickName === game.teamA.name && (
-                                <span className="sample-game-pick-icon" aria-hidden="true">
-                                  ✓
-                                </span>
-                              )}
-                            </button>
-                          </div>
-                          <p className="sample-game-vs">VS</p>
-                          <div className="sample-team">
-                            <p className="sample-team-name">
-                              ({game.teamB.seed}) {game.teamB.name}
-                            </p>
-                            <img
-                              className="sample-team-logo"
-                              src={game.teamB.logo}
-                              alt={`${game.teamB.name} logo`}
-                              loading="lazy"
-                            />
-                            <button
-                              type="button"
-                              className={`sample-game-pick ${
-                                currentPickName === game.teamB.name ? "selected" : ""
-                              }`}
-                              aria-pressed={currentPickName === game.teamB.name}
-                              disabled={picksDisabled}
-                              onClick={() => handlePickTeam(selectedEntryObject.id, game.teamB)}
-                            >
-                              Pick ({game.teamB.seed}) {game.teamB.name}
-                              {currentPickName === game.teamB.name && (
-                                <span className="sample-game-pick-icon" aria-hidden="true">
-                                  ✓
-                                </span>
-                              )}
-                            </button>
-                          </div>
+              </section>
+            </section>
+          )}
+          {canAccessAdminTabs && effectiveHomeTab === "admin" && (
+            <section className="admin-tab-shell">
+              {adminEntriesLoading && <p className="pick-section-content">Loading entries...</p>}
+              {!adminEntriesLoading && adminEntriesError && (
+                <p className="pick-section-content">{adminEntriesError}</p>
+              )}
+              {!adminEntriesLoading && !adminEntriesError && adminUsers.length === 0 && (
+                <p className="pick-section-content">No users found.</p>
+              )}
+              {!adminEntriesLoading && !adminEntriesError && adminUsers.length > 0 && (
+                <div className="admin-layout">
+                  <div className="admin-users-panel">
+                    <button
+                      type="button"
+                      className="admin-panel-header"
+                      onClick={() => setAdminUsersCollapsed((prev) => !prev)}
+                      aria-expanded={!adminUsersCollapsed}
+                    >
+                      <span className="pick-section-title">All Users</span>
+                      <span className="admin-panel-toggle">{adminUsersCollapsed ? "+" : "−"}</span>
+                    </button>
+                    {!adminUsersCollapsed && (
+                      <>
+                        <div className="admin-controls">
+                          <label className="admin-sort-label" htmlFor="admin-sort">
+                            Sort by
+                          </label>
+                          <select
+                            id="admin-sort"
+                            className="admin-sort-select"
+                            value={adminSort}
+                            onChange={(event) => setAdminSort(event.target.value)}
+                          >
+                            <option value="username_asc">Username (A-Z)</option>
+                            <option value="username_desc">Username (Z-A)</option>
+                            <option value="entries_desc">Entries (Most)</option>
+                            <option value="entries_asc">Entries (Fewest)</option>
+                          </select>
+                          <button
+                            type="button"
+                            className="admin-control-button"
+                            onClick={allAdminExpanded ? collapseAllAdminUsers : expandAllAdminUsers}
+                          >
+                            {allAdminExpanded ? "Close All" : "Open All"}
+                          </button>
                         </div>
-                      </article>
-                    ))}
+                        <div className="admin-users-list">
+                          {displayedAdminUsers.map((user) => {
+                            const isExpanded = Boolean(expandedAdminUsers[user.usernameLower]);
+
+                            return (
+                              <div className="admin-user-card" key={user.usernameLower}>
+                                <button
+                                  type="button"
+                                  className="admin-user-header"
+                                  onClick={() => toggleAdminUser(user.usernameLower)}
+                                  aria-expanded={isExpanded}
+                                >
+                                  <span className="admin-user-header-main">
+                                    <span className="admin-user-name">{user.username}</span>
+                                    <span className="admin-user-email">{user.email || "No email"}</span>
+                                  </span>
+                                  <span className="admin-user-count">{user.entries.length}</span>
+                                </button>
+                                {isExpanded && (
+                                  <div className="admin-user-entries">
+                                    {user.entries.length === 0 && (
+                                      <p className="pick-section-content">No entries for this user.</p>
+                                    )}
+                                    {user.entries.map((entry) => {
+                                      const adminPickName = getPickName(entry.currentPick);
+                                      const adminPickLogo = getPickLogo(entry.currentPick);
+
+                                      return (
+                                        <div className="admin-entry-row" key={entry.id}>
+                                          <span className="admin-entry-user">Entry ({entry.entryNumber})</span>
+                                          <div className="admin-entry-details">
+                                            <div className="admin-entry-pick">
+                                              <span>Current:</span>
+                                              {adminPickName ? (
+                                                <span className="admin-pick-chip">
+                                                  {adminPickLogo && (
+                                                    <img
+                                                      className="admin-pick-logo"
+                                                      src={adminPickLogo}
+                                                      alt={`${adminPickName} logo`}
+                                                      loading="lazy"
+                                                    />
+                                                  )}
+                                                  <span>{adminPickName}</span>
+                                                </span>
+                                              ) : (
+                                                <span>No team chosen</span>
+                                              )}
+                                            </div>
+                                            <div className="admin-entry-prev">
+                                              <span>Previous:</span>
+                                              {entry.previousPicks?.length ? (
+                                                <div className="admin-prev-picks">
+                                                  {entry.previousPicks.map((pick, pickIndex) => {
+                                                    const previousPickName = getPickName(pick);
+                                                    const previousPickLogo = getPickLogo(pick);
+
+                                                    return (
+                                                      <span className="admin-pick-chip" key={`${entry.id}-prev-${pickIndex}`}>
+                                                        {previousPickLogo && (
+                                                          <img
+                                                            className="admin-pick-logo"
+                                                            src={previousPickLogo}
+                                                            alt={`${previousPickName} logo`}
+                                                            loading="lazy"
+                                                          />
+                                                        )}
+                                                        <span>{previousPickName}</span>
+                                                      </span>
+                                                    );
+                                                  })}
+                                                </div>
+                                              ) : (
+                                                <span>None</span>
+                                              )}
+                                            </div>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            className="admin-entry-delete"
+                                            onClick={() =>
+                                              setAdminEntryPendingDelete({
+                                                id: entry.id,
+                                                username: user.username,
+                                                entryNumber: entry.entryNumber,
+                                              })
+                                            }
+                                            aria-label={`Delete ${user.username} (${entry.entryNumber})`}
+                                          >
+                                            x
+                                          </button>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
                   </div>
-                </section>
+                  <aside className="admin-chart-panel">
+                    <button
+                      type="button"
+                      className="admin-panel-header"
+                      onClick={() => setAdminChartCollapsed((prev) => !prev)}
+                      aria-expanded={!adminChartCollapsed}
+                    >
+                      <span className="pick-section-title">Current Pick Counts</span>
+                      <span className="admin-panel-toggle">{adminChartCollapsed ? "+" : "−"}</span>
+                    </button>
+                    {!adminChartCollapsed &&
+                      (teamSelectionCounts.length === 0 ? (
+                        <p className="pick-section-content">No teams selected yet.</p>
+                      ) : (
+                        <div className="admin-team-chart">
+                          {teamSelectionCounts.map((item) => {
+                            const maxCount = teamSelectionCounts[0]?.count || 1;
+                            const widthPercent = Math.max(6, Math.round((item.count / maxCount) * 100));
+
+                            return (
+                              <div className="admin-team-row" key={item.teamName}>
+                                <div className="admin-team-meta">
+                                  {item.logo ? (
+                                    <img
+                                      className="admin-team-logo"
+                                      src={item.logo}
+                                      alt={`${item.teamName} logo`}
+                                      loading="lazy"
+                                    />
+                                  ) : (
+                                    <span className="admin-team-logo-placeholder" aria-hidden="true">
+                                      ∅
+                                    </span>
+                                  )}
+                                  <span className={`admin-team-name ${item.isNoSelection ? "no-selection" : ""}`}>
+                                    {item.teamName}
+                                  </span>
+                                  <span className="admin-team-count">{item.count}</span>
+                                </div>
+                                <div className="admin-team-bar-wrap">
+                                  <div className="admin-team-bar" style={{ width: `${widthPercent}%` }} />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
+                  </aside>
+                </div>
               )}
             </section>
-          </section>
+          )}
           {isEntriesSheetOpen && (
             <div className="entries-sheet-backdrop" onClick={() => setIsEntriesSheetOpen(false)}>
               <section className="entries-sheet" onClick={(event) => event.stopPropagation()}>
@@ -773,6 +1191,32 @@ function App() {
                 type="button"
                 className="confirm-delete"
                 onClick={() => confirmDeleteEntry(entryPendingDelete)}
+              >
+                Delete
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {adminEntryPendingDelete !== null && (
+        <div className="confirm-backdrop" onClick={() => setAdminEntryPendingDelete(null)}>
+          <section className="confirm-modal" onClick={(event) => event.stopPropagation()}>
+            <h2>Delete Admin Entry</h2>
+            <p>
+              Delete "{adminEntryPendingDelete.username} ({adminEntryPendingDelete.entryNumber})"?
+            </p>
+            <div className="confirm-actions">
+              <button
+                type="button"
+                className="confirm-cancel"
+                onClick={() => setAdminEntryPendingDelete(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="confirm-delete"
+                onClick={() => confirmDeleteAdminEntry(adminEntryPendingDelete)}
               >
                 Delete
               </button>
