@@ -51,30 +51,6 @@ async function syncUserTotalEntries(db, username) {
   });
 }
 
-async function syncEntryAlivenessForUser(entriesCollection, rawUsername) {
-  const { match } = buildUsernameMatch(rawUsername);
-
-  await entriesCollection.updateMany(
-    { ...match, currentPick: null },
-    {
-      $set: {
-        isAlive: false,
-        isAliveUpdatedAt: new Date(),
-      },
-    }
-  );
-
-  await entriesCollection.updateMany(
-    { ...match, currentPick: { $ne: null } },
-    {
-      $set: {
-        isAlive: true,
-        isAliveUpdatedAt: new Date(),
-      },
-    }
-  );
-}
-
 export default async function handler(req, res) {
   try {
     const db = await getDb();
@@ -94,15 +70,19 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "username is required" });
       }
 
-      if (entriesLocked) {
-        try {
-          await syncEntryAlivenessForUser(entriesCollection, username);
-        } catch (syncError) {
-          console.error("Failed to sync entry aliveness on GET", syncError);
-        }
-      }
-
       const { match } = buildUsernameMatch(username);
+
+      if (!tournamentStarted) {
+        await entriesCollection.updateMany(
+          match,
+          {
+            $set: {
+              isAlive: true,
+              isAliveUpdatedAt: new Date(),
+            },
+          }
+        );
+      }
       const entries = await entriesCollection
         .find(match, {
           projection: {
@@ -244,7 +224,7 @@ export default async function handler(req, res) {
       const { match } = buildUsernameMatch(cleanUsername);
       const existing = await entriesCollection.findOne(
         { _id: new ObjectId(cleanId), ...match },
-        { projection: { isLocked: 1 } }
+        { projection: { isLocked: 1, isAlive: 1 } }
       );
 
       if (!existing) {
@@ -253,6 +233,12 @@ export default async function handler(req, res) {
 
       if (existing.isLocked) {
         return res.status(403).json({ error: "entry is locked and cannot be updated" });
+      }
+
+      if (tournamentStarted && existing.isAlive === false && normalizedCurrentPick !== null) {
+        return res.status(403).json({
+          error: "entry is eliminated and cannot be changed",
+        });
       }
 
       await entriesCollection.updateOne(

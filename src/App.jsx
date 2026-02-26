@@ -86,6 +86,11 @@ function getPickLogo(pick) {
   return TEAM_LOGOS[name] || "";
 }
 
+function isEntryEliminatedByRules(entry, entriesAreLocked, hasTournamentStarted) {
+  if (!hasTournamentStarted) return false;
+  return entry?.isAlive === false;
+}
+
 const SAMPLE_GAMES = [
   { id: "g1", teamA: buildTeam("Creighton", 9), teamB: buildTeam("Louisville", 8) },
   { id: "g2", teamA: buildTeam("Purdue", 4), teamB: buildTeam("High Point", 13) },
@@ -148,6 +153,11 @@ function App() {
   const [adminEntriesLoading, setAdminEntriesLoading] = useState(false);
   const [adminEntriesError, setAdminEntriesError] = useState("");
   const [adminNotice, setAdminNotice] = useState("");
+  const [adminSettings, setAdminSettings] = useState({
+    entriesLocked: false,
+    tournamentStarted: false,
+  });
+  const [adminSettingsSaving, setAdminSettingsSaving] = useState({});
   const [expandedAdminUsers, setExpandedAdminUsers] = useState({});
   const [adminSort, setAdminSort] = useState("username_asc");
   const [adminUsersCollapsed, setAdminUsersCollapsed] = useState(false);
@@ -199,6 +209,8 @@ function App() {
     setAdminEntriesLoading(false);
     setAdminEntriesError("");
     setAdminNotice("");
+    setAdminSettings({ entriesLocked: false, tournamentStarted: false });
+    setAdminSettingsSaving({});
     setExpandedAdminUsers({});
     setAdminUsersCollapsed(false);
     setAdminChartCollapsed(false);
@@ -274,6 +286,10 @@ function App() {
 
       const data = await response.json();
       setAdminUsers(Array.isArray(data.users) ? data.users : []);
+      setAdminSettings({
+        entriesLocked: Boolean(data?.settings?.entriesLocked),
+        tournamentStarted: Boolean(data?.settings?.tournamentStarted),
+      });
     } catch (error) {
       console.error("Load admin entries failed:", error);
       setAdminEntriesError(String(error.message || error));
@@ -431,6 +447,38 @@ function App() {
     } catch (error) {
       console.error("Copy outstanding emails failed:", error);
       setAdminEntriesError("Could not copy outstanding emails to clipboard.");
+    }
+  }
+
+  async function updateAdminSetting(settingKey, nextValue) {
+    if (!["entriesLocked", "tournamentStarted"].includes(settingKey)) return;
+
+    const previousSettings = adminSettings;
+    setAdminEntriesError("");
+    setAdminSettings((prev) => ({ ...prev, [settingKey]: nextValue }));
+    setAdminSettingsSaving((prev) => ({ ...prev, [settingKey]: true }));
+
+    try {
+      const response = await fetch("/api/admin-entries", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [settingKey]: nextValue }),
+      });
+
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`Setting update failed (${response.status}): ${body || "No response body"}`);
+      }
+
+      if (currentUserName) {
+        await loadEntries(currentUserName, selectedEntry);
+      }
+    } catch (error) {
+      console.error("Setting update failed:", error);
+      setAdminSettings(previousSettings);
+      setAdminEntriesError(String(error.message || error));
+    } finally {
+      setAdminSettingsSaving((prev) => ({ ...prev, [settingKey]: false }));
     }
   }
 
@@ -665,6 +713,10 @@ function App() {
       setErrorMessage("Entries are locked.");
       return;
     }
+    if (tournamentStarted && selectedEntryObj.isAlive === false) {
+      setErrorMessage("This entry is eliminated and cannot be changed.");
+      return;
+    }
 
     const existingPickName =
       typeof selectedEntryObj.currentPick === "string"
@@ -708,7 +760,12 @@ function App() {
         });
 
         if (response.status === 403) {
-          setErrorMessage("Entries are locked.");
+          const body = await response.text();
+          if (body.toLowerCase().includes("eliminated")) {
+            setErrorMessage("This entry is eliminated and cannot be changed.");
+          } else {
+            setErrorMessage("Entries are locked.");
+          }
           await loadEntries(currentUserName, entryId);
           return;
         }
@@ -745,7 +802,7 @@ function App() {
     return (
       <div className={`entry-list ${extraClassName}`.trim()}>
         {entries.map((entry) => {
-          const isEliminated = entriesLocked && entry.isAlive === false;
+          const isEliminated = isEntryEliminatedByRules(entry, entriesLocked, tournamentStarted);
           const entryCurrentPickName =
             typeof entry.currentPick === "string"
               ? entry.currentPick
@@ -887,11 +944,16 @@ function App() {
   const selectedEntryObject = entries.find((entry) => entry.id === selectedEntry) || null;
   const canAccessAdminTabs = ADMIN_USER_ALLOWLIST.has(currentUserName.trim().toLowerCase());
   const effectiveHomeTab = canAccessAdminTabs ? activeHomeTab : "games";
-  const picksDisabled = Boolean(entriesLocked || selectedEntryObject?.isLocked);
+  const picksDisabled = Boolean(
+    entriesLocked ||
+      selectedEntryObject?.isLocked ||
+      (tournamentStarted && selectedEntryObject?.isAlive === false)
+  );
   const currentPickName = getPickName(selectedEntryObject?.currentPick);
   const currentPickLogo = getPickLogo(selectedEntryObject?.currentPick);
   const selectedEntryEliminated = Boolean(
-    selectedEntryObject && entriesLocked && selectedEntryObject.isAlive === false
+    selectedEntryObject &&
+      isEntryEliminatedByRules(selectedEntryObject, entriesLocked, tournamentStarted)
   );
 
   return (
@@ -1128,6 +1190,35 @@ function App() {
                     </button>
                     {!adminUsersCollapsed && (
                       <>
+                        <div className="admin-settings-controls">
+                          <button
+                            type="button"
+                            className={`admin-setting-toggle ${
+                              adminSettings.entriesLocked ? "on" : "off"
+                            }`}
+                            disabled={Boolean(adminSettingsSaving.entriesLocked)}
+                            onClick={() =>
+                              updateAdminSetting("entriesLocked", !adminSettings.entriesLocked)
+                            }
+                          >
+                            Entries Locked: {adminSettings.entriesLocked ? "On" : "Off"}
+                          </button>
+                          <button
+                            type="button"
+                            className={`admin-setting-toggle ${
+                              adminSettings.tournamentStarted ? "on" : "off"
+                            }`}
+                            disabled={Boolean(adminSettingsSaving.tournamentStarted)}
+                            onClick={() =>
+                              updateAdminSetting(
+                                "tournamentStarted",
+                                !adminSettings.tournamentStarted
+                              )
+                            }
+                          >
+                            Tournament Started: {adminSettings.tournamentStarted ? "On" : "Off"}
+                          </button>
+                        </div>
                         <div className="admin-controls">
                           <label className="admin-sort-label" htmlFor="admin-sort">
                             Sort by
@@ -1214,10 +1305,27 @@ function App() {
                                     {user.entries.map((entry) => {
                                       const adminPickName = getPickName(entry.currentPick);
                                       const adminPickLogo = getPickLogo(entry.currentPick);
+                                      const adminEntryEliminated = isEntryEliminatedByRules(
+                                        entry,
+                                        adminSettings.entriesLocked,
+                                        adminSettings.tournamentStarted
+                                      );
 
                                       return (
-                                        <div className="admin-entry-row" key={entry.id}>
-                                          <span className="admin-entry-user">Entry ({entry.entryNumber})</span>
+                                        <div
+                                          className={`admin-entry-row ${
+                                            adminEntryEliminated ? "eliminated" : ""
+                                          }`}
+                                          key={entry.id}
+                                        >
+                                          <span className="admin-entry-user-wrap">
+                                            <span className="admin-entry-user">Entry ({entry.entryNumber})</span>
+                                            {adminEntryEliminated && (
+                                              <span className="admin-entry-eliminated-badge" aria-label="Eliminated">
+                                                x
+                                              </span>
+                                            )}
+                                          </span>
                                           <div className="admin-entry-details">
                                             <div className="admin-entry-pick">
                                               <span>Current:</span>

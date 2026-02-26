@@ -21,9 +21,77 @@ function escapeRegex(value) {
 export default async function handler(req, res) {
   try {
     if (req.method === "PATCH") {
-      const { id, isPaid, usernameLower, markAllPaid } = readJsonBody(req);
+      const body = readJsonBody(req);
+      const { id, isPaid, usernameLower, markAllPaid, entriesLocked, tournamentStarted } = body;
       const cleanId = String(id || "").trim();
       const cleanUsernameLower = String(usernameLower || "").trim().toLowerCase();
+      const hasEntriesLocked = typeof entriesLocked === "boolean";
+      const hasTournamentStarted = typeof tournamentStarted === "boolean";
+
+      if (hasEntriesLocked || hasTournamentStarted) {
+        const db = await getDb();
+        const settingsCollection = db.collection("appSettings");
+        const existingSettings = await settingsCollection.findOne(
+          { _id: "global" },
+          { projection: { tournamentStarted: 1 } }
+        );
+        const nextSettings = {};
+
+        if (hasEntriesLocked) {
+          nextSettings.entriesLocked = entriesLocked;
+        }
+
+        if (hasTournamentStarted) {
+          nextSettings.tournamentStarted = tournamentStarted;
+        }
+
+        await settingsCollection.updateOne(
+          { _id: "global" },
+          {
+            $set: {
+              ...nextSettings,
+              updatedAt: new Date(),
+            },
+          },
+          { upsert: true }
+        );
+
+        if (hasTournamentStarted && tournamentStarted === false) {
+          await db.collection("entries").updateMany(
+            {},
+            {
+              $set: {
+                isAlive: true,
+                isAliveUpdatedAt: new Date(),
+              },
+            }
+          );
+        }
+
+        if (hasEntriesLocked && entriesLocked === true) {
+          const entriesCollection = db.collection("entries");
+          const effectiveTournamentStarted = hasTournamentStarted
+            ? tournamentStarted
+            : Boolean(existingSettings?.tournamentStarted);
+
+          if (effectiveTournamentStarted) {
+            await entriesCollection.updateMany(
+              { currentPick: null },
+              {
+                $set: {
+                  isAlive: false,
+                  isAliveUpdatedAt: new Date(),
+                },
+              }
+            );
+          }
+        }
+
+        return res.status(200).json({
+          ok: true,
+          settings: nextSettings,
+        });
+      }
 
       if (markAllPaid === true) {
         if (!cleanUsernameLower) {
@@ -89,6 +157,9 @@ export default async function handler(req, res) {
     }
 
     const db = await getDb();
+    const settingsDoc = await db
+      .collection("appSettings")
+      .findOne({ _id: "global" }, { projection: { entriesLocked: 1, tournamentStarted: 1 } });
     const entries = await db
       .collection("entries")
       .find(
@@ -161,7 +232,13 @@ export default async function handler(req, res) {
       }))
       .sort((a, b) => a.usernameLower.localeCompare(b.usernameLower));
 
-    return res.status(200).json({ users });
+    return res.status(200).json({
+      users,
+      settings: {
+        entriesLocked: Boolean(settingsDoc?.entriesLocked),
+        tournamentStarted: Boolean(settingsDoc?.tournamentStarted),
+      },
+    });
   } catch (error) {
     console.error("/api/admin-entries failed", error);
     return res.status(500).json({ error: "Internal server error" });
