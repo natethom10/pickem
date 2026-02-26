@@ -762,6 +762,15 @@ main {
   row-gap: 0.45rem;
 }
 
+.admin-copy-controls {
+  margin-top: 0.45rem;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  column-gap: 0.55rem;
+  row-gap: 0.45rem;
+}
+
 .admin-control-button {
   border: 1px solid #d1d5db;
   border-radius: 8px;

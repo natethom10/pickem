@@ -503,6 +503,32 @@ function App() {
     }
   }
 
+  async function copyAliveEntryEmails() {
+    const emails = [
+      ...new Set(
+        adminUsers
+          .filter((user) => (user.entries || []).some((entry) => entry?.isAlive !== false))
+          .map((user) => String(user.email || "").trim())
+          .filter((email) => email.includes("@"))
+      ),
+    ];
+
+    if (emails.length === 0) {
+      setTransientAdminNotice("No emails found for users with alive entries.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(emails.join(", "));
+      setTransientAdminNotice(
+        `Copied ${emails.length} alive-entry email${emails.length === 1 ? "" : "s"} to clipboard.`
+      );
+    } catch (error) {
+      console.error("Copy alive-entry emails failed:", error);
+      setAdminEntriesError("Could not copy alive-entry emails to clipboard.");
+    }
+  }
+
   async function applyAdminSettingUpdate(settingKey, nextValue) {
     if (!["entriesLocked", "tournamentStarted"].includes(settingKey)) return;
 
@@ -733,7 +759,9 @@ function App() {
     return count;
   }, [adminUsers]);
   const aliveEntriesCount = Math.max(0, totalEntriesCount - eliminatedEntriesCount);
-  const adminWinnerButtonsDisabled = !adminSettings.entriesLocked && !adminSettings.tournamentStarted;
+  const adminWinnerButtonsDisabled = !(
+    adminSettings.entriesLocked && adminSettings.tournamentStarted
+  );
 
   async function handleNewEntry() {
     if (!currentUserName) return;
@@ -1522,17 +1550,26 @@ function App() {
                         >
                           {allAdminExpanded ? "Close All" : "Open All"}
                         </button>
-                        <button type="button" className="admin-control-button" onClick={copyAdminEmails}>
-                          Copy Emails
-                        </button>
-                        <button
-                          type="button"
-                          className="admin-control-button"
-                          onClick={copyOutstandingEmails}
-                        >
-                          Copy Unpaid Emails
-                        </button>
-                      </div>
+                        </div>
+                        <div className="admin-copy-controls">
+                          <button type="button" className="admin-control-button" onClick={copyAdminEmails}>
+                            Copy Emails
+                          </button>
+                          <button
+                            type="button"
+                            className="admin-control-button"
+                            onClick={copyOutstandingEmails}
+                          >
+                            Copy Unpaid Emails
+                          </button>
+                          <button
+                            type="button"
+                            className="admin-control-button"
+                            onClick={copyAliveEntryEmails}
+                          >
+                            Copy Alive Emails
+                          </button>
+                        </div>
                         {adminNotice && <p className="admin-notice">{adminNotice}</p>}
                         <div className="admin-users-list">
                           {displayedAdminUsers.map((user) => {
@@ -1540,7 +1577,7 @@ function App() {
                             const totalEntries = user.entries.length;
                             const paidEntries = user.entries.filter((entry) => Boolean(entry.isPaid)).length;
                             const paidPercent =
-                              totalEntries > 0 ? Math.round((paidEntries / totalEntries) * 100) : 0;
+                              totalEntries > 0 ? Math.round((paidEntries / totalEntries) * 100) : 100;
                             const hasUnpaidEntries = totalEntries > paidEntries;
 
                             return (

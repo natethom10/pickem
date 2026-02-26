@@ -32,6 +32,18 @@ export default async function handler(req, res) {
     const db = await getDb();
     const teamsCollection = db.collection("teams");
     const entriesCollection = db.collection("entries");
+    const settingsCollection = db.collection("appSettings");
+
+    await settingsCollection.updateOne(
+      { _id: "global" },
+      {
+        $set: {
+          entriesLocked: false,
+          updatedAt: new Date(),
+        },
+      },
+      { upsert: true }
+    );
 
     const loserTeamDocs = await teamsCollection
       .find(
