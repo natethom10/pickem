@@ -68,14 +68,6 @@ const TEAM_LOGOS = {
   "Liberty": "https://a.espncdn.com/i/teamlogos/ncaa/500/2335.png",
 };
 
-function buildTeam(name, seed) {
-  return {
-    name,
-    seed,
-    logo: TEAM_LOGOS[name] || "https://a.espncdn.com/i/teamlogos/ncaa/500/default-team-logo-500.png",
-  };
-}
-
 function getPickName(pick) {
   return typeof pick === "string" ? pick : pick?.name || "";
 }
@@ -86,46 +78,33 @@ function getPickLogo(pick) {
   return TEAM_LOGOS[name] || "";
 }
 
+function hasTeamInPreviousPicks(entry, teamName) {
+  const normalizedTeamName = String(teamName || "").trim().toLowerCase();
+  if (!normalizedTeamName) return false;
+
+  const previousPicks = Array.isArray(entry?.previousPicks) ? entry.previousPicks : [];
+  return previousPicks.some((pick) => getPickName(pick).trim().toLowerCase() === normalizedTeamName);
+}
+
+const ROUND_LABELS = [
+  "R64",
+  "R32",
+  "S16",
+  "E8",
+  "F4",
+  "CH",
+];
+
+function getRoundLabelForPickIndex(index) {
+  return ROUND_LABELS[index] || `Round ${index + 1}`;
+}
+
 function isEntryEliminatedByRules(entry, entriesAreLocked, hasTournamentStarted) {
   if (!hasTournamentStarted) return false;
   return entry?.isAlive === false;
 }
 
-const SAMPLE_GAMES = [
-  { id: "g1", teamA: buildTeam("Creighton", 9), teamB: buildTeam("Louisville", 8) },
-  { id: "g2", teamA: buildTeam("Purdue", 4), teamB: buildTeam("High Point", 13) },
-  { id: "g3", teamA: buildTeam("Wisconsin", 3), teamB: buildTeam("Montana", 14) },
-  { id: "g4", teamA: buildTeam("Houston", 1), teamB: buildTeam("SIU Edwardsville", 16) },
-  { id: "g5", teamA: buildTeam("Auburn", 1), teamB: buildTeam("Alabama State", 16) },
-  { id: "g6", teamA: buildTeam("McNeese", 12), teamB: buildTeam("Clemson", 5) },
-  { id: "g7", teamA: buildTeam("BYU", 6), teamB: buildTeam("VCU", 11) },
-  { id: "g8", teamA: buildTeam("Gonzaga", 8), teamB: buildTeam("Georgia", 9) },
-  { id: "g9", teamA: buildTeam("Tennessee", 2), teamB: buildTeam("Wofford", 15) },
-  { id: "g10", teamA: buildTeam("Arkansas", 10), teamB: buildTeam("Kansas", 7) },
-  { id: "g11", teamA: buildTeam("Texas A&M", 4), teamB: buildTeam("Yale", 13) },
-  { id: "g12", teamA: buildTeam("Drake", 11), teamB: buildTeam("Missouri", 6) },
-  { id: "g13", teamA: buildTeam("UCLA", 7), teamB: buildTeam("Utah State", 10) },
-  { id: "g14", teamA: buildTeam("St. John's", 2), teamB: buildTeam("Omaha", 15) },
-  { id: "g15", teamA: buildTeam("Michigan", 5), teamB: buildTeam("UC San Diego", 12) },
-  { id: "g16", teamA: buildTeam("Texas Tech", 3), teamB: buildTeam("UNC Wilmington", 14) },
-  { id: "g17", teamA: buildTeam("Baylor", 9), teamB: buildTeam("Mississippi State", 8) },
-  { id: "g18", teamA: buildTeam("Alabama", 2), teamB: buildTeam("Robert Morris", 15) },
-  { id: "g19", teamA: buildTeam("Iowa State", 3), teamB: buildTeam("Lipscomb", 14) },
-  { id: "g20", teamA: buildTeam("Colorado State", 12), teamB: buildTeam("Memphis", 5) },
-  { id: "g21", teamA: buildTeam("Duke", 1), teamB: buildTeam("Mount St. Mary's", 16) },
-  { id: "g22", teamA: buildTeam("Saint Mary's", 7), teamB: buildTeam("Vanderbilt", 10) },
-  { id: "g23", teamA: buildTeam("Ole Miss", 6), teamB: buildTeam("North Carolina", 11) },
-  { id: "g24", teamA: buildTeam("Maryland", 4), teamB: buildTeam("Grand Canyon", 13) },
-  { id: "g25", teamA: buildTeam("Florida", 1), teamB: buildTeam("Norfolk State", 16) },
-  { id: "g26", teamA: buildTeam("Kentucky", 3), teamB: buildTeam("Troy", 14) },
-  { id: "g27", teamA: buildTeam("New Mexico", 10), teamB: buildTeam("Marquette", 7) },
-  { id: "g28", teamA: buildTeam("Arizona", 4), teamB: buildTeam("Akron", 13) },
-  { id: "g29", teamA: buildTeam("UConn", 8), teamB: buildTeam("Oklahoma", 9) },
-  { id: "g30", teamA: buildTeam("Illinois", 6), teamB: buildTeam("Xavier", 11) },
-  { id: "g31", teamA: buildTeam("Michigan State", 2), teamB: buildTeam("Bryant", 15) },
-  { id: "g32", teamA: buildTeam("Oregon", 5), teamB: buildTeam("Liberty", 12) },
-];
-const PICK_SYNC_DELAY_MS = 2000;
+const PICK_SYNC_DELAY_MS = 500;
 const ADMIN_USER_ALLOWLIST = new Set(["natethom", "derek3dunn", "ddunn23"]);
 
 function App() {
@@ -137,6 +116,7 @@ function App() {
     return localStorage.getItem("pickem_user_name") || "";
   });
   const [entries, setEntries] = useState([]);
+  const [games, setGames] = useState([]);
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [isEntriesSheetOpen, setIsEntriesSheetOpen] = useState(false);
   const [entryPendingDelete, setEntryPendingDelete] = useState(null);
@@ -145,6 +125,7 @@ function App() {
   const [tournamentStarted, setTournamentStarted] = useState(false);
   const [mobileCreateNotice, setMobileCreateNotice] = useState("");
   const [authPopupMessage, setAuthPopupMessage] = useState("");
+  const [authPopupTitle, setAuthPopupTitle] = useState("");
   const [activeHomeTab, setActiveHomeTab] = useState(() => {
     const saved = localStorage.getItem("pickem_active_home_tab");
     return saved === "admin" ? "admin" : "games";
@@ -158,10 +139,14 @@ function App() {
     tournamentStarted: false,
   });
   const [adminSettingsSaving, setAdminSettingsSaving] = useState({});
+  const [tournamentResetPending, setTournamentResetPending] = useState(false);
+  const [confirmingResults, setConfirmingResults] = useState(false);
   const [expandedAdminUsers, setExpandedAdminUsers] = useState({});
   const [adminSort, setAdminSort] = useState("username_asc");
   const [adminUsersCollapsed, setAdminUsersCollapsed] = useState(false);
   const [adminChartCollapsed, setAdminChartCollapsed] = useState(false);
+  const [adminGamesCollapsed, setAdminGamesCollapsed] = useState(false);
+  const [adminGameResults, setAdminGameResults] = useState({});
   const mobileNoticeTimerRef = useRef(null);
   const pickSyncTimersRef = useRef({});
   const adminNoticeTimerRef = useRef(null);
@@ -184,6 +169,10 @@ function App() {
     if (!loggedIn || !currentUserName) return;
     loadEntries(currentUserName);
   }, [loggedIn, currentUserName]);
+
+  useEffect(() => {
+    loadGames();
+  }, []);
 
   useEffect(() => {
     if (!loggedIn) return;
@@ -211,9 +200,14 @@ function App() {
     setAdminNotice("");
     setAdminSettings({ entriesLocked: false, tournamentStarted: false });
     setAdminSettingsSaving({});
+    setTournamentResetPending(false);
+    setAuthPopupTitle("");
+    setAuthPopupMessage("");
     setExpandedAdminUsers({});
     setAdminUsersCollapsed(false);
     setAdminChartCollapsed(false);
+    setAdminGamesCollapsed(false);
+    setAdminGameResults({});
     setErrorMessage("");
   }
 
@@ -271,6 +265,30 @@ function App() {
     }
   }
 
+  async function loadGames() {
+    try {
+      const response = await fetch(`/api/games?t=${Date.now()}`);
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`Games fetch failed (${response.status}): ${body || "No response body"}`);
+      }
+
+      const data = await response.json();
+      const nextGames = Array.isArray(data.games) ? data.games : [];
+      setGames(nextGames);
+      setAdminGameResults(
+        nextGames.reduce((acc, game) => {
+          if (game?.completed && (game.winnerSide === "A" || game.winnerSide === "B")) {
+            acc[game.id] = game.winnerSide;
+          }
+          return acc;
+        }, {})
+      );
+    } catch (error) {
+      console.error("Load games failed:", error);
+    }
+  }
+
   async function loadAdminEntries() {
     setAdminEntriesLoading(true);
     setAdminEntriesError("");
@@ -322,6 +340,41 @@ function App() {
 
   function collapseAllAdminUsers() {
     setExpandedAdminUsers({});
+  }
+
+  async function setAdminGameWinner(gameId, winnerSide) {
+    const previousWinnerSide = adminGameResults[gameId] || null;
+    const nextWinnerSide = previousWinnerSide === winnerSide ? null : winnerSide;
+    const completed = Boolean(nextWinnerSide);
+
+    setAdminGameResults((prev) => ({
+      ...prev,
+      [gameId]: nextWinnerSide,
+    }));
+
+    try {
+      const response = await fetch("/api/games", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: gameId,
+          winnerSide: nextWinnerSide,
+          completed,
+        }),
+      });
+
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`Game update failed (${response.status}): ${body || "No response body"}`);
+      }
+    } catch (error) {
+      console.error("Game winner update failed:", error);
+      setAdminEntriesError(String(error.message || error));
+      setAdminGameResults((prev) => ({
+        ...prev,
+        [gameId]: previousWinnerSide,
+      }));
+    }
   }
 
   async function updateAdminEntryPaid(entryId, isPaid) {
@@ -450,7 +503,7 @@ function App() {
     }
   }
 
-  async function updateAdminSetting(settingKey, nextValue) {
+  async function applyAdminSettingUpdate(settingKey, nextValue) {
     if (!["entriesLocked", "tournamentStarted"].includes(settingKey)) return;
 
     const previousSettings = adminSettings;
@@ -479,6 +532,54 @@ function App() {
       setAdminEntriesError(String(error.message || error));
     } finally {
       setAdminSettingsSaving((prev) => ({ ...prev, [settingKey]: false }));
+    }
+  }
+
+  async function updateAdminSetting(settingKey, nextValue) {
+    if (
+      settingKey === "tournamentStarted" &&
+      adminSettings.tournamentStarted === true &&
+      nextValue === false
+    ) {
+      setTournamentResetPending(true);
+      return;
+    }
+
+    await applyAdminSettingUpdate(settingKey, nextValue);
+  }
+
+  async function confirmResultsAndEliminateEntries() {
+    if (confirmingResults) return;
+    setConfirmingResults(true);
+    setAdminEntriesError("");
+
+    try {
+      const response = await fetch("/api/confirm-results", {
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`Confirm results failed (${response.status}): ${body || "No response body"}`);
+      }
+
+      const data = await response.json().catch(() => ({}));
+      const eliminatedCount = Number(data?.eliminatedCount || 0);
+      setTransientAdminNotice(
+        eliminatedCount > 0
+          ? `Results confirmed. Eliminated ${eliminatedCount} entr${eliminatedCount === 1 ? "y" : "ies"}.`
+          : "Results confirmed. No new entries were eliminated."
+      );
+
+      await loadAdminEntries();
+      if (currentUserName) {
+        await loadEntries(currentUserName, selectedEntry);
+      }
+    } catch (error) {
+      console.error("Confirm results failed:", error);
+      setAdminEntriesError(String(error.message || error));
+    } finally {
+      setConfirmingResults(false);
     }
   }
 
@@ -536,6 +637,12 @@ function App() {
       const bUnpaid = Array.isArray(b.entries)
         ? b.entries.filter((entry) => !entry.isPaid).length
         : 0;
+      const aAlive = Array.isArray(a.entries)
+        ? a.entries.filter((entry) => entry.isAlive !== false).length
+        : 0;
+      const bAlive = Array.isArray(b.entries)
+        ? b.entries.filter((entry) => entry.isAlive !== false).length
+        : 0;
 
       if (adminSort === "username_desc") {
         return bName.localeCompare(aName) || bCount - aCount;
@@ -553,6 +660,10 @@ function App() {
         return bUnpaid - aUnpaid || aName.localeCompare(bName);
       }
 
+      if (adminSort === "alive_desc") {
+        return bAlive - aAlive || aName.localeCompare(bName);
+      }
+
       return aName.localeCompare(bName) || bCount - aCount;
     });
 
@@ -566,12 +677,28 @@ function App() {
   const teamSelectionCounts = useMemo(() => {
     const counts = new Map();
     const noSelectionKey = "__NO_SELECTION__";
+    const eliminatedTeams = new Set();
+
+    for (const game of games) {
+      if (game?.teamA?.status === "loser" && game.teamA.name) {
+        eliminatedTeams.add(String(game.teamA.name).trim().toLowerCase());
+      }
+      if (game?.teamB?.status === "loser" && game.teamB.name) {
+        eliminatedTeams.add(String(game.teamB.name).trim().toLowerCase());
+      }
+    }
 
     for (const user of adminUsers) {
       for (const entry of user.entries || []) {
+        if (entry?.isAlive === false) {
+          continue;
+        }
+
         const pickName = getPickName(entry.currentPick);
         if (!pickName) {
           counts.set(noSelectionKey, (counts.get(noSelectionKey) || 0) + 1);
+        } else if (eliminatedTeams.has(pickName.trim().toLowerCase())) {
+          continue;
         } else {
           counts.set(pickName, (counts.get(pickName) || 0) + 1);
         }
@@ -586,7 +713,27 @@ function App() {
         isNoSelection: teamName === noSelectionKey,
       }))
       .sort((a, b) => b.count - a.count || a.teamName.localeCompare(b.teamName));
+  }, [adminUsers, games]);
+  const eliminatedEntriesCount = useMemo(() => {
+    let count = 0;
+    for (const user of adminUsers) {
+      for (const entry of user.entries || []) {
+        if (entry?.isAlive === false) {
+          count += 1;
+        }
+      }
+    }
+    return count;
   }, [adminUsers]);
+  const totalEntriesCount = useMemo(() => {
+    let count = 0;
+    for (const user of adminUsers) {
+      count += Array.isArray(user.entries) ? user.entries.length : 0;
+    }
+    return count;
+  }, [adminUsers]);
+  const aliveEntriesCount = Math.max(0, totalEntriesCount - eliminatedEntriesCount);
+  const adminWinnerButtonsDisabled = !adminSettings.entriesLocked && !adminSettings.tournamentStarted;
 
   async function handleNewEntry() {
     if (!currentUserName) return;
@@ -717,6 +864,10 @@ function App() {
       setErrorMessage("This entry is eliminated and cannot be changed.");
       return;
     }
+    if (hasTeamInPreviousPicks(selectedEntryObj, team.name)) {
+      setErrorMessage("You cannot pick a team that is already in previous picks.");
+      return;
+    }
 
     const existingPickName =
       typeof selectedEntryObj.currentPick === "string"
@@ -763,6 +914,8 @@ function App() {
           const body = await response.text();
           if (body.toLowerCase().includes("eliminated")) {
             setErrorMessage("This entry is eliminated and cannot be changed.");
+          } else if (body.toLowerCase().includes("loser")) {
+            setErrorMessage("This team is marked as a loser and cannot be selected.");
           } else {
             setErrorMessage("Entries are locked.");
           }
@@ -889,8 +1042,10 @@ function App() {
         if (loginResponse.status === 409) {
           const conflict = await loginResponse.json().catch(() => ({}));
           if (conflict?.error === "email already exists") {
+            setAuthPopupTitle("Cannot Sign Up");
             setAuthPopupMessage("Email already exists. Please use another email or log in.");
           } else {
+            setAuthPopupTitle("Cannot Sign Up");
             setAuthPopupMessage("Username already exists. Please choose another username or log in.");
           }
           return;
@@ -922,6 +1077,7 @@ function App() {
 
       if (!loginResponse.ok) {
         if (loginResponse.status === 401) {
+          setAuthPopupTitle("Login Failed");
           setAuthPopupMessage("Invalid username or password.");
           return;
         }
@@ -944,6 +1100,7 @@ function App() {
   const selectedEntryObject = entries.find((entry) => entry.id === selectedEntry) || null;
   const canAccessAdminTabs = ADMIN_USER_ALLOWLIST.has(currentUserName.trim().toLowerCase());
   const effectiveHomeTab = canAccessAdminTabs ? activeHomeTab : "games";
+  const hasUnpaidEntries = entries.some((entry) => !entry.isPaid);
   const picksDisabled = Boolean(
     entriesLocked ||
       selectedEntryObject?.isLocked ||
@@ -977,6 +1134,9 @@ function App() {
               Log Out
             </button>
           </header>
+          {!canAccessAdminTabs && hasUnpaidEntries && (
+            <p className="payment-reminder">You have unpaid entries. Please pay to stay eligible.</p>
+          )}
           {canAccessAdminTabs && (
             <section className="home-tabs">
               <div className="home-tab-buttons">
@@ -1060,43 +1220,58 @@ function App() {
                     <section className="pick-section wide">
                       <p className="pick-section-title">Previous Picks</p>
                       {selectedEntryObject.previousPicks?.length ? (
-                        <ul className="previous-picks-list">
-                          {selectedEntryObject.previousPicks.map((pick, index) => {
-                            const pickName = getPickName(pick);
-                            const pickLogo = getPickLogo(pick);
+                        <div className="previous-picks-wrap">
+                          <p className="previous-picks-count">
+                            {selectedEntryObject.previousPicks.length} total
+                          </p>
+                          <ul className="previous-picks-list">
+                            {selectedEntryObject.previousPicks.map((pick, index) => {
+                              const pickName = getPickName(pick);
+                              const pickLogo = getPickLogo(pick);
 
-                            return (
-                              <li key={`${selectedEntryObject.id}-pick-${index}`}>
-                                {pickLogo && (
-                                  <img
-                                    className="previous-pick-logo"
-                                    src={pickLogo}
-                                    alt={`${pickName} logo`}
-                                    loading="lazy"
-                                  />
-                                )}
-                                <span>{pickName}</span>
-                              </li>
-                            );
-                          })}
-                        </ul>
+                              return (
+                                <li
+                                  className="previous-pick-item"
+                                  key={`${selectedEntryObject.id}-pick-${index}`}
+                                >
+                                  <span className="previous-pick-index">
+                                    {getRoundLabelForPickIndex(index)}
+                                  </span>
+                                  <div className="previous-pick-team">
+                                    {pickLogo && (
+                                      <img
+                                        className="previous-pick-logo"
+                                        src={pickLogo}
+                                        alt={`${pickName} logo`}
+                                        loading="lazy"
+                                      />
+                                    )}
+                                    <span className="previous-pick-name">{pickName}</span>
+                                  </div>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </div>
                       ) : (
-                        <p className="pick-section-content">No previous picks</p>
+                        <p className="pick-section-content previous-picks-empty">No previous picks</p>
                         )}
                       </section>
                     </div>
-                  ) : (
-                    <>
-                      <p className="selected-entry-label">Selected Entry</p>
-                      <p className="selected-entry-value">None selected</p>
-                    </>
-                  )}
-                </div>
+                ) : (
+                  <>
+                    <p className="selected-entry-label">Selected Entry</p>
+                    <p className="selected-entry-value">
+                      {entries.length === 0 ? "No entries yet. Create an entry to get started." : "None selected"}
+                    </p>
+                  </>
+                )}
+              </div>
                 {selectedEntryObject ? (
                   <section className="sample-games-wrap">
                     <p className="pick-section-title">Round of 64</p>
                     <div className="sample-games-grid">
-                      {SAMPLE_GAMES.map((game) => (
+                      {games.map((game) => (
                         <article className="sample-game-card" key={game.id}>
                           <div className="sample-game-matchup">
                             <div className="sample-team">
@@ -1115,7 +1290,11 @@ function App() {
                                   currentPickName === game.teamA.name ? "selected" : ""
                                 }`}
                                 aria-pressed={currentPickName === game.teamA.name}
-                                disabled={picksDisabled}
+                                disabled={
+                                  picksDisabled ||
+                                  hasTeamInPreviousPicks(selectedEntryObject, game.teamA.name) ||
+                                  game.teamA.status === "loser"
+                                }
                                 onClick={() => handlePickTeam(selectedEntryObject.id, game.teamA)}
                               >
                                 Pick ({game.teamA.seed}) {game.teamA.name}
@@ -1143,7 +1322,11 @@ function App() {
                                   currentPickName === game.teamB.name ? "selected" : ""
                                 }`}
                                 aria-pressed={currentPickName === game.teamB.name}
-                                disabled={picksDisabled}
+                                disabled={
+                                  picksDisabled ||
+                                  hasTeamInPreviousPicks(selectedEntryObject, game.teamB.name) ||
+                                  game.teamB.status === "loser"
+                                }
                                 onClick={() => handlePickTeam(selectedEntryObject.id, game.teamB)}
                               >
                                 Pick ({game.teamB.seed}) {game.teamB.name}
@@ -1160,9 +1343,7 @@ function App() {
                     </div>
                   </section>
                 ) : (
-                  <section className="sample-games-wrap">
-                    <p className="pick-section-content">Select an entry to view games.</p>
-                  </section>
+                  <section className="sample-games-wrap" />
                 )}
               </section>
             </section>
@@ -1178,6 +1359,104 @@ function App() {
               )}
               {!adminEntriesLoading && !adminEntriesError && adminUsers.length > 0 && (
                 <div className="admin-layout">
+                  <aside className="admin-games-panel">
+                    <button
+                      type="button"
+                      className="admin-panel-header"
+                      onClick={() => setAdminGamesCollapsed((prev) => !prev)}
+                      aria-expanded={!adminGamesCollapsed}
+                    >
+                      <span className="pick-section-title">Games</span>
+                      <span className="admin-panel-toggle">{adminGamesCollapsed ? "+" : "−"}</span>
+                    </button>
+                    {!adminGamesCollapsed && (
+                      <>
+                        <button
+                          type="button"
+                          className="admin-confirm-results-btn"
+                          onClick={confirmResultsAndEliminateEntries}
+                          disabled={confirmingResults}
+                        >
+                          {confirmingResults ? "Confirming..." : "Confirm Results"}
+                        </button>
+                        <div className="admin-games-list">
+                        {games.map((game) => (
+                          <div className="admin-game-row" key={`admin-${game.id}`}>
+                            <div
+                              className={`admin-game-team ${
+                                adminGameResults[game.id] === "A"
+                                  ? "winner"
+                                  : adminGameResults[game.id] === "B"
+                                    ? "loser"
+                                    : ""
+                              }`}
+                              role="button"
+                              tabIndex={adminWinnerButtonsDisabled ? -1 : 0}
+                              aria-disabled={adminWinnerButtonsDisabled}
+                              onClick={() => {
+                                if (!adminWinnerButtonsDisabled) {
+                                  setAdminGameWinner(game.id, "A");
+                                }
+                              }}
+                              onKeyDown={(event) => {
+                                if (adminWinnerButtonsDisabled) return;
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  setAdminGameWinner(game.id, "A");
+                                }
+                              }}
+                            >
+                              <img
+                                className="admin-game-team-logo"
+                                src={game.teamA.logo}
+                                alt={`${game.teamA.name} logo`}
+                                loading="lazy"
+                              />
+                              <span className="admin-game-team-name">
+                                ({game.teamA.seed}) {game.teamA.name}
+                              </span>
+                            </div>
+                            <span className="admin-game-vs">VS</span>
+                            <div
+                              className={`admin-game-team ${
+                                adminGameResults[game.id] === "B"
+                                  ? "winner"
+                                  : adminGameResults[game.id] === "A"
+                                    ? "loser"
+                                    : ""
+                              }`}
+                              role="button"
+                              tabIndex={adminWinnerButtonsDisabled ? -1 : 0}
+                              aria-disabled={adminWinnerButtonsDisabled}
+                              onClick={() => {
+                                if (!adminWinnerButtonsDisabled) {
+                                  setAdminGameWinner(game.id, "B");
+                                }
+                              }}
+                              onKeyDown={(event) => {
+                                if (adminWinnerButtonsDisabled) return;
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  setAdminGameWinner(game.id, "B");
+                                }
+                              }}
+                            >
+                              <img
+                                className="admin-game-team-logo"
+                                src={game.teamB.logo}
+                                alt={`${game.teamB.name} logo`}
+                                loading="lazy"
+                              />
+                              <span className="admin-game-team-name">
+                                ({game.teamB.seed}) {game.teamB.name}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                        </div>
+                      </>
+                    )}
+                  </aside>
                   <div className="admin-users-panel">
                     <button
                       type="button"
@@ -1233,6 +1512,7 @@ function App() {
                             <option value="username_desc">Username (Z-A)</option>
                             <option value="entries_desc">Entries (Most)</option>
                             <option value="entries_asc">Entries (Fewest)</option>
+                            <option value="alive_desc">Alive Entries (Most)</option>
                             <option value="unpaid_desc">Unpaid (Most)</option>
                           </select>
                         <button
@@ -1424,6 +1704,12 @@ function App() {
                       <span className="pick-section-title">Current Pick Counts</span>
                       <span className="admin-panel-toggle">{adminChartCollapsed ? "+" : "−"}</span>
                     </button>
+                    {!adminChartCollapsed && (
+                      <div className="admin-entry-totals">
+                        <p className="admin-alive-count">Alive: {aliveEntriesCount}</p>
+                        <p className="admin-eliminated-count">Eliminated: {eliminatedEntriesCount}</p>
+                      </div>
+                    )}
                     {!adminChartCollapsed &&
                       (teamSelectionCounts.length === 0 ? (
                         <p className="pick-section-content">No teams selected yet.</p>
@@ -1538,13 +1824,55 @@ function App() {
         </div>
       )}
       {authPopupMessage && (
-        <div className="confirm-backdrop" onClick={() => setAuthPopupMessage("")}>
+        <div
+          className="confirm-backdrop"
+          onClick={() => {
+            setAuthPopupTitle("");
+            setAuthPopupMessage("");
+          }}
+        >
           <section className="confirm-modal" onClick={(event) => event.stopPropagation()}>
-            <h2>Cannot Sign Up</h2>
+            <h2>{authPopupTitle || "Notice"}</h2>
             <p>{authPopupMessage}</p>
             <div className="confirm-actions">
-              <button type="button" className="confirm-cancel" onClick={() => setAuthPopupMessage("")}>
+              <button
+                type="button"
+                className="confirm-cancel"
+                onClick={() => {
+                  setAuthPopupTitle("");
+                  setAuthPopupMessage("");
+                }}
+              >
                 OK
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {tournamentResetPending && (
+        <div className="confirm-backdrop" onClick={() => setTournamentResetPending(false)}>
+          <section className="confirm-modal" onClick={(event) => event.stopPropagation()}>
+            <h2>Reset Tournament Start?</h2>
+            <p>
+              Turning Tournament Started off will make all entries alive again. Continue?
+            </p>
+            <div className="confirm-actions">
+              <button
+                type="button"
+                className="confirm-cancel"
+                onClick={() => setTournamentResetPending(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="confirm-delete"
+                onClick={async () => {
+                  setTournamentResetPending(false);
+                  await applyAdminSettingUpdate("tournamentStarted", false);
+                }}
+              >
+                Confirm
               </button>
             </div>
           </section>

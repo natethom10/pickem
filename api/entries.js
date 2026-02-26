@@ -224,7 +224,7 @@ export default async function handler(req, res) {
       const { match } = buildUsernameMatch(cleanUsername);
       const existing = await entriesCollection.findOne(
         { _id: new ObjectId(cleanId), ...match },
-        { projection: { isLocked: 1, isAlive: 1 } }
+        { projection: { isLocked: 1, isAlive: 1, previousPicks: 1 } }
       );
 
       if (!existing) {
@@ -239,6 +239,35 @@ export default async function handler(req, res) {
         return res.status(403).json({
           error: "entry is eliminated and cannot be changed",
         });
+      }
+
+      if (normalizedCurrentPick !== null) {
+        const normalizedNextPickName = normalizedCurrentPick.name.toLowerCase();
+        const previousPicks = Array.isArray(existing.previousPicks) ? existing.previousPicks : [];
+        const alreadyPicked = previousPicks.some((pick) => {
+          const pickName =
+            typeof pick === "string" ? pick : String(pick?.name || "").trim();
+          return pickName.toLowerCase() === normalizedNextPickName;
+        });
+
+        if (alreadyPicked) {
+          return res.status(403).json({
+            error: "team already exists in previous picks",
+          });
+        }
+
+        const loserTeam = await db.collection("teams").findOne(
+          {
+            name: new RegExp(`^${escapeRegex(normalizedCurrentPick.name)}$`, "i"),
+            status: "loser",
+          },
+          { projection: { _id: 1 } }
+        );
+        if (loserTeam) {
+          return res.status(403).json({
+            error: "team is marked as loser and cannot be selected",
+          });
+        }
       }
 
       await entriesCollection.updateOne(

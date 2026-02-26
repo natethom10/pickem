@@ -33,8 +33,10 @@ export default async function handler(req, res) {
         const settingsCollection = db.collection("appSettings");
         const existingSettings = await settingsCollection.findOne(
           { _id: "global" },
-          { projection: { tournamentStarted: 1 } }
+          { projection: { entriesLocked: 1, tournamentStarted: 1 } }
         );
+        const previousEntriesLocked = Boolean(existingSettings?.entriesLocked);
+        const previousTournamentStarted = Boolean(existingSettings?.tournamentStarted);
         const nextSettings = {};
 
         if (hasEntriesLocked) {
@@ -56,12 +58,17 @@ export default async function handler(req, res) {
           { upsert: true }
         );
 
+        const effectiveTournamentStarted = hasTournamentStarted
+          ? tournamentStarted
+          : previousTournamentStarted;
+
         if (hasTournamentStarted && tournamentStarted === false) {
           await db.collection("entries").updateMany(
             {},
             {
               $set: {
                 isAlive: true,
+                previousPicks: [],
                 isAliveUpdatedAt: new Date(),
               },
             }
@@ -70,9 +77,6 @@ export default async function handler(req, res) {
 
         if (hasEntriesLocked && entriesLocked === true) {
           const entriesCollection = db.collection("entries");
-          const effectiveTournamentStarted = hasTournamentStarted
-            ? tournamentStarted
-            : Boolean(existingSettings?.tournamentStarted);
 
           if (effectiveTournamentStarted) {
             await entriesCollection.updateMany(
@@ -85,6 +89,32 @@ export default async function handler(req, res) {
               }
             );
           }
+        }
+
+        if (
+          hasEntriesLocked &&
+          previousEntriesLocked &&
+          entriesLocked === false &&
+          effectiveTournamentStarted
+        ) {
+          const now = new Date();
+          await db.collection("entries").updateMany(
+            {
+              isAlive: true,
+              currentPick: { $ne: null },
+            },
+            [
+              {
+                $set: {
+                  previousPicks: {
+                    $concatArrays: [{ $ifNull: ["$previousPicks", []] }, ["$currentPick"]],
+                  },
+                  currentPick: null,
+                  currentPickUpdatedAt: now,
+                },
+              },
+            ]
+          );
         }
 
         return res.status(200).json({
